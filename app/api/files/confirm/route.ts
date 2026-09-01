@@ -1,7 +1,7 @@
 import "server-only";
 import { handler, requireUser, ApiError } from "@/lib/api/auth";
 import { createAdminClient } from "@/lib/supabase/server";
-import { headObject } from "@/lib/services/b2";
+import { headObject, deleteObject } from "@/lib/services/b2";
 import { mapFile } from "@/lib/api/mappers";
 import { deriveCategory } from "@/lib/storage/categories";
 import { validateMime } from "@/lib/services/mime";
@@ -31,9 +31,26 @@ export const POST = handler(async (req: Request) => {
   const head = await headObject(file.object_key);
   if (!head) throw new ApiError("UPLOAD_FAILED", 500, "Uploaded object was not found in storage.");
 
+  // The quota check happened at ticket time against the size the client DECLARED.
+  // Accepting whatever storage reports here would make that check meaningless: a
+  // client could declare one byte, pass the check, and upload gigabytes. Storage is
+  // the authority on what was stored, so a mismatch is rejected rather than
+  // recorded, and the object is removed so nothing is billed for it.
+  const declared = Number(file.size_bytes);
+  const actual = head.sizeBytes;
+  if (actual !== declared) {
+    await deleteObject(String(file.object_key));
+    await admin.from("files").delete().eq("id", body.fileId).eq("owner_id", user.id);
+    throw new ApiError(
+      "UPLOAD_FAILED",
+      422,
+      "The uploaded file did not match the size that was declared."
+    );
+  }
+
   const { data: updated, error } = await admin
     .from("files")
-    .update({ status: "ready", size_bytes: head.sizeBytes || file.size_bytes })
+    .update({ status: "ready", size_bytes: actual })
     .eq("id", body.fileId)
     .eq("owner_id", user.id)
     .select("*")

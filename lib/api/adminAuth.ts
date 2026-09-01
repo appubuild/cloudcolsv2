@@ -19,7 +19,36 @@ export interface AdminIdentity {
 }
 
 const ADMIN_COOKIE = "cloudcols.admin.token";
-const tokenSecret = () => process.env.ADMIN_TOKEN_SECRET ?? "dev-admin-secret"; // set in prod
+
+/**
+ * The key that signs staff sessions.
+ *
+ * This used to fall back to a literal string when the variable was unset. That
+ * string lives in the repository, so a deployment that forgot the variable was
+ * signing admin tokens with a publicly known key: anyone could mint one for any
+ * address and only needed to guess an active admin's email to hold super_admin.
+ *
+ * A missing key is a deployment mistake, not a state to keep running in, so it
+ * fails here. Outside production a per-process random key keeps local development
+ * working without ever being a value an attacker could know.
+ */
+const devSecret = crypto.randomUUID();
+
+function tokenSecret(): string {
+  const configured = process.env.ADMIN_TOKEN_SECRET;
+  if (configured && configured.length >= 32) return configured;
+
+  if (process.env.NODE_ENV === "production") {
+    throw new ApiError(
+      "NOT_CONFIGURED",
+      500,
+      "ADMIN_TOKEN_SECRET is not set (or is shorter than 32 characters). Admin sign-in is disabled until it is."
+    );
+  }
+  // Development: random per process, so tokens do not survive a restart and no
+  // guessable key exists.
+  return devSecret;
+}
 const TTL_MS = 6 * 60 * 60 * 1000; // 6h staff session
 
 function b64url(b: Buffer): string {
