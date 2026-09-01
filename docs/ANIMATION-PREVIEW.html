@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>CloudCols — Dashboard Motion Preview</title>
+<style>
+  /* Same tokens as app/globals.css + tailwind tokens. */
+  :root{
+    --bg:#f7f8fa; --surface:#ffffff; --surface-2:#f7f8fa; --border:#e2e5ea;
+    --text:#111827; --muted:#6b7280; --primary:#2563eb; --primary-soft:#eef2ff;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:var(--bg);color:var(--text);-webkit-font-smoothing:antialiased}
+  .wrap{max-width:1040px;margin:0 auto;padding:34px 20px 60px}
+  a{color:var(--primary);text-decoration:none}
+  h1{font-size:26px;margin:0}
+  h2{font-size:16px;margin:0 0 4px}
+  .sub{color:var(--muted);font-size:14px;margin-top:6px}
+  .row{display:flex;align-items:flex-end;justify-content:space-between;flex-wrap:wrap;gap:12px}
+  .btn{background:var(--primary);color:#fff;border:none;border-radius:8px;padding:9px 14px;font-weight:600;font-size:14px;cursor:pointer}
+  .grid3{display:grid;grid-template-columns:1fr;gap:16px;margin-top:22px}
+  @media(min-width:900px){.grid3{grid-template-columns:2fr 1fr}}
+  .card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:18px}
+  .muted{color:var(--muted)}
+  .statgrid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+  .stat{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:16px}
+  .stat .chip{width:34px;height:34px;border-radius:8px;background:rgba(37,99,235,.12);color:var(--primary);display:flex;align-items:center;justify-content:center;font-weight:700}
+  .stat b{display:block;font-size:26px;margin-top:10px}
+  .stat span{font-size:12px;color:var(--muted)}
+  .folds{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:14px}
+  .folder{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:14px;display:flex;flex-direction:column;gap:10px}
+  .folder .ic{width:44px;height:44px;border-radius:10px;display:flex;align-items:center;justify-content:center;background:#eef2ff;color:var(--primary)}
+  .folder b{font-size:14px}
+  .folder .p{font-size:12px;color:var(--muted)}
+  .ring{width:120px;height:120px;margin:0 auto}
+  .ring circle{fill:none;stroke-width:10;stroke-linecap:round}
+  .ring .track{stroke:var(--surface-2)}
+  .ring .val{stroke:var(--primary);stroke-dasharray:340;stroke-dashoffset:118}
+  .skeleton{height:44px;border-radius:10px}
+  .rowline{display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border)}
+  .rowline:last-child{border-bottom:none}
+  .rowline .av{width:34px;height:34px;border-radius:9px;background:#eee;color:#888;display:flex;align-items:center;justify-content:center;font-weight:700}
+
+  /* ---- Motion (mirrors app/globals.css) ---- */
+  @keyframes cc-fade-up{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
+  @keyframes cc-scale-in{from{opacity:0;transform:scale(.96)}to{opacity:1;transform:scale(1)}}
+  @keyframes cc-shimmer{from{background-position:-400px 0}to{background-position:400px 0}}
+  @keyframes cc-ring-grow{from{stroke-dashoffset:340}}
+  .cc-fade-up{animation:cc-fade-up .5s cubic-bezier(.22,1,.36,1) both}
+  .cc-scale-in{animation:cc-scale-in .35s cubic-bezier(.22,1,.36,1) both}
+  .cc-stagger{animation-delay:calc(var(--stagger,0)*70ms);animation-fill-mode:both}
+  .cc-lift{transition:transform .2s cubic-bezier(.22,1,.36,1),box-shadow .2s cubic-bezier(.22,1,.36,1),border-color .2s ease;will-change:transform}
+  .cc-lift:hover{transform:translateY(-3px);box-shadow:0 12px 26px rgba(17,24,39,.08)}
+  .cc-lift:hover .folder-name{color:var(--primary)}
+  .cc-skeleton{position:relative;overflow:hidden;background:var(--surface-2)}
+  .cc-skeleton::after{content:"";position:absolute;inset:0;transform:translateX(-100%);background:linear-gradient(90deg,transparent,rgba(255,255,255,.5),transparent);animation:cc-shimmer 1.4s infinite}
+  .cc-ring-grow{animation:cc-ring-grow .9s cubic-bezier(.22,1,.36,1) both}
+  @media(prefers-reduced-motion:reduce){*{animation-duration:.001ms!important;transition-duration:.001ms!important;animation-iteration-count:1!important}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <!-- Header: fade-up -->
+  <header class="cc-fade-up row">
+    <div>
+      <h1>Good morning, Amin</h1>
+      <p class="sub">Welcome back — here's what's happening with your files.</p>
+    </div>
+    <button class="btn">⬆ Upload / Browse</button>
+  </header>
+
+  <div class="grid3">
+    <div>
+      <!-- Stats: lift + fade -->
+      <div class="statgrid">
+        <div class="stat cc-lift cc-fade-up cc-stagger" style="--stagger:0"><span class="chip">F</span><b>128</b><span>Files</span></div>
+        <div class="stat cc-lift cc-fade-up cc-stagger" style="--stagger:1"><span class="chip">★</span><b>14</b><span>Favorites</span></div>
+        <div class="stat cc-lift cc-fade-up cc-stagger" style="--stagger:2"><span class="chip">⏱</span><b>32</b><span>Recently used</span></div>
+      </div>
+
+      <!-- Favorite folders: staggered fade + lift -->
+      <h2 style="margin-top:26px">Favorite folders</h2>
+      <div class="folds">
+        <div class="cc-fade-up cc-stagger" style="--stagger:0"><div class="folder cc-lift"><div class="ic">▦</div><b class="folder-name">Documents</b><span class="p">My Drive / Documents</span></div></div>
+        <div class="cc-fade-up cc-stagger" style="--stagger:1"><div class="folder cc-lift"><div class="ic" style="background:#ecfdf5;color:#059669">▣</div><b class="folder-name">Images</b><span class="p">My Drive / Images</span></div></div>
+        <div class="cc-fade-up cc-stagger" style="--stagger:2"><div class="folder cc-lift"><div class="ic" style="background:#fff7ed;color:#d97706">▶</div><b class="folder-name">Videos</b><span class="p">My Drive / Videos</span></div></div>
+        <div class="cc-fade-up cc-stagger" style="--stagger:3"><div class="folder cc-lift"><div class="ic" style="background:#fef2f2;color:#e11d48">♪</div><b class="folder-name">Music</b><span class="p">My Drive / Music</span></div></div>
+        <div class="cc-fade-up cc-stagger" style="--stagger:4"><div class="folder cc-lift"><div class="ic" style="background:#f0f9ff;color:#0284c7">✎</div><b class="folder-name">Design</b><span class="p">My Drive / Design</span></div></div>
+      </div>
+    </div>
+
+    <!-- Storage card: ring grows + lift -->
+    <div class="card cc-lift cc-fade-up" style="--stagger:0">
+      <h2>Storage</h2>
+      <p class="sub">Device backup</p>
+      <div class="ring">
+        <svg width="120" height="120" viewBox="0 0 120 120">
+          <circle class="track" cx="60" cy="60" r="54"/>
+          <circle class="val cc-ring-grow" cx="60" cy="60" r="54" transform="rotate(-90 60 60)"/>
+        </svg>
+      </div>
+      <div style="text-align:center;margin-top:8px"><b>1.4 GB</b> of <span class="muted">5 GB</span></div>
+      <div class="muted" style="font-size:13px;text-align:center;margin-top:6px">72% remaining</div>
+    </div>
+  </div>
+
+  <!-- Recent access list: staggered rows -->
+  <div class="card cc-fade-up cc-stagger" style="margin-top:22px;--stagger:1">
+    <div class="row"><h2>Recent access</h2><a href="#">View all</a></div>
+    <div style="margin-top:8px">
+      <div class="rowline cc-fade-up cc-stagger" style="--stagger:0"><span class="av">▦</span><div style="flex:1"><b style="font-size:14px">Q3_report.pdf</b><div class="muted" style="font-size:12px">2 min ago</div></div><span class="muted">★</span></div>
+      <div class="rowline cc-fade-up cc-stagger" style="--stagger:1"><span class="av">▣</span><div style="flex:1"><b style="font-size:14px">Wedding</b><div class="muted" style="font-size:12px">1 h ago</div></div><span class="muted">★</span></div>
+      <div class="rowline cc-fade-up cc-stagger" style="--stagger:2"><span class="av">▶</span><div style="flex:1"><b style="font-size:14px">Launch_reel.mp4</b><div class="muted" style="font-size:12px">Yesterday</div></div><span class="muted">★</span></div>
+    </div>
+  </div>
+
+  <!-- Skeleton shimmer -->
+  <div class="card cc-fade-up cc-stagger" style="margin-top:22px;--stagger:2">
+    <h2>Loading</h2>
+    <p class="sub">Skeleton shimmer (hover the cards above)</p>
+    <div style="display:flex;flex-direction:column;gap:10px;margin-top:12px">
+      <div class="cc-skeleton"></div>
+      <div class="cc-skeleton" style="width:70%"></div>
+      <div class="cc-skeleton" style="width:45%"></div>
+    </div>
+  </div>
+
+  <p class="muted" style="margin-top:26px;font-size:13px">
+    Effects: <b>cc-fade-up</b> (entrance), <b>cc-stagger</b> (list delay),
+    <b>cc-lift</b> (card hover), <b>cc-ring-grow</b> (storage ring),
+    <b>cc-skeleton</b> (shimmer). All are disabled under
+    <span style="font-family:monospace">prefers-reduced-motion</span>.
+  </p>
+</div>
+</body>
+</html>

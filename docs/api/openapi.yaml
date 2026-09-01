@@ -1,0 +1,142 @@
+openapi: 3.0.3
+info:
+  title: CloudCols API
+  version: 1.0.0
+  description: >
+    Public REST API for CloudCols. Authenticate with a live API key
+    (Authorization: Bearer cc_live_...). Keys are scoped; a missing scope
+    returns 403. All responses are JSON under { ok, data } (success) or
+    { ok:false, error:{ code, message } } (failure).
+servers:
+  - url: https://api.cloudcols.com/v1
+security:
+  - bearerAuth: []
+paths:
+  /files:
+    get:
+      summary: List files (paginated)
+      operationId: listFiles
+      parameters:
+        - name: folderId
+          in: query
+          schema: { type: string }
+        - name: category
+          in: query
+          schema:
+            type: string
+            enum: [image, video, audio, pdf, document, archive, other]
+        - name: search
+          in: query
+          schema: { type: string }
+        - name: page
+          in: query
+          schema: { type: integer, default: 1 }
+        - name: pageSize
+          in: query
+          schema: { type: integer, default: 36, maximum: 100 }
+      responses:
+        "200":
+          description: Files for this key's owner.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PaginatedFiles"
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+  /files/{id}/download:
+    get:
+      summary: Get a presigned download URL
+      operationId: getDownloadUrl
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: A short-lived, signed URL for downloading the object.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      url: { type: string }
+                      expiresIn: { type: integer }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+  /usage:
+    get:
+      summary: Aggregate request usage
+      operationId: getUsage
+      parameters:
+        - name: days
+          in: query
+          schema: { type: integer, default: 7, maximum: 90 }
+      responses:
+        "200":
+          description: Request counts / rate totals.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      requests: { type: integer }
+                      errors: { type: integer }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: cc_live_
+  schemas:
+    File:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        folderId: { type: string, nullable: true }
+        originalFilename: { type: string }
+        mimeType: { type: string }
+        category:
+          type: string
+          enum: [image, video, audio, pdf, document, archive, other]
+        sizeBytes: { type: integer }
+        thumbnailUrl: { type: string, nullable: true }
+        isFavorite: { type: boolean }
+        status: { type: string }
+        createdAt: { type: string }
+        updatedAt: { type: string }
+    PaginatedFiles:
+      type: object
+      properties:
+        data:
+          type: object
+          properties:
+            items:
+              type: array
+              items: { $ref: "#/components/schemas/File" }
+            total: { type: integer }
+            page: { type: integer }
+            pageSize: { type: integer }
+  responses:
+    Unauthorized:
+      description: Missing or invalid API key.
+      content:
+        application/json:
+          example: { ok: false, error: { code: UNAUTHORIZED, message: Invalid API key. } }
+    RateLimited:
+      description: Per-minute rate limit exceeded.
+      content:
+        application/json:
+          example: { ok: false, error: { code: RATE_LIMITED, message: Rate limit exceeded. } }
+    NotFound:
+      description: Resource not found.
+      content:
+        application/json:
+          example: { ok: false, error: { code: NOT_FOUND, message: Not found. } }

@@ -1,0 +1,27 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "cloudcols-app",
+  "main": ".open-next/worker.js",
+  "compatibility_date": "2026-08-01",
+  "compatibility_flags": ["nodejs_compat"],
+
+  "assets": {
+    "directory": ".open-next/assets",
+    "binding": "ASSETS"
+  },
+
+  "observability": { "enabled": true },
+
+  // Public configuration only. NEXT_PUBLIC_* values are inlined into the browser
+  // bundle at build time anyway, so holding them as Worker secrets would achieve
+  // nothing except an empty value at runtime.
+  //
+  // Real secrets are set with `wrangler secret put NAME` and never appear here:
+  //   SUPABASE_SERVICE_ROLE_KEY, B2_ACCESS_KEY_ID, B2_SECRET_ACCESS_KEY,
+  //   ADMIN_TOKEN_SECRET, CDN_TICKET_SECRET, JOBS_TOKEN, RESEND_API_KEY
+  "vars": {
+    "NEXT_PUBLIC_DATA_LAYER": "api",
+    "DATA_LAYER": "api",
+    "B2_REGION": "us-east-005"
+  }
+}
