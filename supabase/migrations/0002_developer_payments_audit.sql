@@ -132,3 +132,13 @@ create policy "api_keys_owner" on public.api_keys for all using (auth.uid() = us
 create policy "webhooks_owner" on public.webhooks for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
 create policy "subscriptions_owner" on public.subscriptions for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
 create policy "payments_owner" on public.payments for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
+
+-- These two carry every admin action and every API call made across the platform.
+-- Without RLS they are readable by any signed-in user, because PostgREST exposes
+-- public tables to the authenticated role by default: an ordinary account could
+-- read the audit trail and other tenants' request logs.
+--
+-- Enabled with no policy, which is a deny-all. The service role bypasses RLS, so
+-- the admin endpoints that are meant to read these still can.
+alter table public.api_request_logs enable row level security;
+alter table public.audit_logs enable row level security;

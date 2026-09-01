@@ -10,7 +10,7 @@ create index if not exists files_owner_category_idx on public.files(owner_id, ca
 create index if not exists files_owner_fav_idx on public.files(owner_id) where is_favorite = true;
 create index if not exists files_owner_recent_idx on public.files(owner_id, last_accessed_at desc);
 create index if not exists files_owner_trashed_idx on public.files(owner_id, trashed_at desc);
-create index if not exists files_name_ilike_idx on public.files using gin (original_filename gin_trgm_ops);
+create index if not exists files_name_ilike_idx on public.files using gin (original_filename extensions.gin_trgm_ops);
 create index if not exists files_object_key_idx on public.files(object_key);
 
 -- Folders.

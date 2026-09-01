@@ -5,6 +5,27 @@ import { mapFile, mapFolder } from "@/lib/api/mappers";
 
 export const dynamic = "force-dynamic";
 
+/**
+ * The sort keys the client sends, mapped to real columns.
+ *
+ * The sort parameter used to reach `.order()` unmapped, so the default — "modified",
+ * which is what the UI sends and what this route itself defaults to — asked Postgres
+ * for a column that does not exist. Every unparameterised listing answered 500, which
+ * is the file manager's main screen. It also meant an arbitrary caller-supplied string
+ * was handed to the query builder as a column name.
+ *
+ * An unknown key falls back to name rather than erroring: a listing is not the place
+ * to refuse a request over a cosmetic preference.
+ */
+const SORT_COLUMNS: Record<string, string> = {
+  name: "original_filename",
+  modified: "updated_at",
+  created: "created_at",
+  size: "size_bytes",
+  accessed: "last_accessed_at",
+  favorite: "is_favorite",
+};
+
 // List files + folder contents for the authenticated user.
 export const GET = handler(async (req: Request) => {
   const user = await requireUser(req);
@@ -41,7 +62,7 @@ export const GET = handler(async (req: Request) => {
   if (recent) query = query.not("last_accessed_at", "is", null).order("last_accessed_at", { ascending: false });
   if (search) query = query.ilike("original_filename", `%${search}%`);
 
-  query = query.order(sort === "name" ? "original_filename" : sort, { ascending: order === "ASC" });
+  query = query.order(SORT_COLUMNS[sort] ?? SORT_COLUMNS.name, { ascending: order === "ASC" });
 
   const { data: files, error } = await query.range((page - 1) * pageSize, page * pageSize - 1);
   if (error) throw error;

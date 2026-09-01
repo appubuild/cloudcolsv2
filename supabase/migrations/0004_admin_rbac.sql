@@ -13,10 +13,19 @@ create table if not exists public.admins (
   last_login_at timestamptz
 );
 
--- Super admin bootstrap. Admin passwords are managed via the Admin login flow;
--- the seed admin identity is keyed off the platform owner's email.
+-- Seeded INACTIVE.
+--
+-- Admin sign-in checks that the address is an active admin and then verifies the
+-- password against Supabase Auth. Registration is open, so seeding an ACTIVE row
+-- for an address nobody owns means whoever registers super@cloudcols.com first
+-- passes both checks and holds super_admin. The address is published in this
+-- repository, so that is not a hypothetical.
+--
+-- To grant yourself admin: register normally, then
+--   update public.admins set email = '<your address>', is_active = true
+--    where email = 'super@cloudcols.com';
 insert into public.admins (email, name, role, is_active)
-values ('super@cloudcols.com', 'Super Admin', 'super_admin', true)
+values ('super@cloudcols.com', 'Super Admin', 'super_admin', false)
 on conflict (email) do nothing;
 
 create index if not exists admins_email_idx on public.admins(email);

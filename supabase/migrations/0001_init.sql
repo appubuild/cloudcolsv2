@@ -60,7 +60,9 @@ create table if not exists public.files (
 create index if not exists files_owner_idx on public.files(owner_id);
 create index if not exists files_folder_idx on public.files(folder_id);
 create index if not exists files_category_idx on public.files(category);
-create index if not exists files_name_trgm on public.files using gin (original_filename gin_trgm_ops);
+-- gin_trgm_ops lives in the extensions schema on Supabase and does not resolve
+-- unqualified from a migration's search_path.
+create index if not exists files_name_trgm on public.files using gin (original_filename extensions.gin_trgm_ops);
 create index if not exists files_created_idx on public.files(created_at desc);
 
 -- ---------------------------------------------------------------------------
@@ -128,7 +130,8 @@ create policy "share_links_all" on public.share_links for all
 -- Files are only counted once their status becomes 'ready'.
 -- ---------------------------------------------------------------------------
 create or replace function public.sync_quota()
-returns trigger language plpgsql security definer as $$
+returns trigger language plpgsql security definer
+set search_path = public, extensions as $$
 declare
   uid uuid;
 begin

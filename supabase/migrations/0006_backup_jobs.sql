@@ -63,12 +63,23 @@ create or replace function public.create_backup_job(
 ) returns setof public.backup_jobs
 language plpgsql
 security definer
-set search_path = public
+set search_path = public, extensions
 as $$
 declare
   v_job public.backup_jobs;
   v_item jsonb;
 begin
+  -- The function runs as its definer, so RLS does not constrain it, and the owner
+  -- arrives as a parameter. Without this check any signed-in caller could invoke it
+  -- over PostgREST with someone else's id and create jobs in their account.
+  --
+  -- Only a caller acting as a user is constrained: the service role has no
+  -- auth.uid(), so the server-side API path is unaffected.
+  if auth.uid() is not null and auth.uid() <> p_owner_id then
+    raise exception 'a backup job can only be created for yourself'
+      using errcode = 'insufficient_privilege';
+  end if;
+
   insert into public.backup_jobs
     (owner_id, name, destination_folder, total_bytes, total_items, wifi_only, status)
   values
