@@ -9,7 +9,10 @@
     "start": "next start",
     "lint": "echo \"lint: configure eslint separately (next lint was removed in Next 16)\"",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "preview": "opennextjs-cloudflare build && opennextjs-cloudflare preview",
+    "deploy": "opennextjs-cloudflare build && wrangler deploy",
+    "e2e": "node scripts/e2e.mjs .dev.vars"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.109.0",
