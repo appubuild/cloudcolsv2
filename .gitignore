@@ -4,10 +4,18 @@ node_modules/
 .next/
 out/
 dist/
+.open-next/
+.wrangler/
 # env
 .env
 .env.local
 .env*.local
+# Worker runtime secrets. This file holds the real service-role key and B2
+# credentials. It was only ever ignored by the parent repository's rules, so
+# once this directory became a repository of its own it would have been
+# committed on the first `git add`.
+.dev.vars
+.dev.vars.*
 # misc
 .DS_Store
 *.log
