@@ -1,6 +1,9 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "cloudcols-app",
+  // Must match the Worker the Cloudflare build is attached to. `wrangler deploy`
+  // takes the target from here, not from the dashboard, so a mismatch quietly
+  // creates a second Worker instead of updating the one that was configured.
+  "name": "cloudcolsv2",
   "main": ".open-next/worker.js",
   "compatibility_date": "2026-08-01",
   "compatibility_flags": ["nodejs_compat"],

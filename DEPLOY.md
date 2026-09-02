@@ -33,8 +33,27 @@ they disagree, the browser and the server use different backends.
 
    - Build command: `npx opennextjs-cloudflare build`
    - Deploy command: `npx wrangler deploy`
+   - Root directory: `/`
 
-3. **Build** variables (Settings → Build → Variables and secrets):
+   **The build command must be `npx opennextjs-cloudflare build`, not
+   `npm run build`.** Cloudflare offers `npm run build` as the default and it
+   completes successfully, which makes it look right — but `npm run build` is
+   `next build`, which produces `.next/`, not the Worker bundle. The deploy step
+   then fails with:
+
+   > ERROR Could not find compiled Open Next config, did you run the build command?
+
+   `opennextjs-cloudflare build` runs `npm run build` itself and then compiles the
+   result into `.open-next/`. That is also why the `build` script in `package.json`
+   has to stay `next build`: pointing it at `opennextjs-cloudflare build` would make
+   it call itself.
+
+3. The Worker name in `wrangler.jsonc` must match the Worker the build is attached
+   to. `wrangler deploy` reads the target from that file, not from the dashboard, so
+   a mismatch quietly creates a second Worker and leaves the configured one
+   untouched — with none of its secrets.
+
+4. **Build** variables (Settings → Build → Variables and secrets):
 
    ```
    NEXT_PUBLIC_SUPABASE_URL       https://<project>.supabase.co
@@ -43,7 +62,7 @@ they disagree, the browser and the server use different backends.
    NEXT_PUBLIC_APP_URL            https://<your domain>
    ```
 
-4. **Runtime** secrets — set as secrets, never as plain variables, and never in
+5. **Runtime** secrets — set as secrets, never as plain variables, and never in
    `wrangler.jsonc`:
 
    ```
@@ -70,7 +89,7 @@ they disagree, the browser and the server use different backends.
    `B2_BUCKET`) live in `wrangler.jsonc` under `vars`, where they are visible in
    version control on purpose: none of them grant anything on their own.
 
-5. **Backblaze CORS.** The browser uploads straight to B2, so the bucket has to allow
+6. **Backblaze CORS.** The browser uploads straight to B2, so the bucket has to allow
    the deployed origin. Without a matching rule the browser never sends the upload and
    there is no server-side trace of the failure at all. Add the real origin
    (`https://<your domain>`) to the bucket's CORS rules, with `etag` among the exposed
