@@ -82,8 +82,23 @@ they disagree, the browser and the server use different backends.
    node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))"
    ```
 
-   Also set `NEXT_PUBLIC_SUPABASE_URL` and `SUPABASE_URL` at runtime — the server
-   reads them per request.
+   The server also needs the Supabase URL and anon key. Set them at runtime under
+   the **plain** names:
+
+   ```
+   SUPABASE_URL
+   SUPABASE_ANON_KEY
+   ```
+
+   Not the `NEXT_PUBLIC_` versions. Next replaces every `process.env.NEXT_PUBLIC_X`
+   in the source — server code included — with whatever was present at build time,
+   and the app then "will no longer respond to changes to these environment
+   variables". Adding a `NEXT_PUBLIC_` name as a runtime variable therefore does
+   nothing at all: the expression that would have read it no longer exists.
+
+   (The app reads the plain names as a fallback and also does a dynamic lookup that
+   Next cannot inline, so a `NEXT_PUBLIC_` runtime value is picked up too. The plain
+   names are still the ones to use — they behave the way the dashboard implies.)
 
    The non-secret runtime values (`DATA_LAYER`, `B2_REGION`, `B2_ENDPOINT`,
    `B2_BUCKET`) live in `wrangler.jsonc` under `vars`, where they are visible in
@@ -118,8 +133,14 @@ It reports whether Supabase and B2 resolved, and which data layer is live:
 {"ok":true,"dataLayer":"api","providers":{"supabase":true,"b2":true}}
 ```
 
-`"dataLayer":"mock"` means the app is serving fabricated data — the env vars did not
-reach the build.
+`"dataLayer":"mock"` on the client means the browser is serving fabricated data —
+the `NEXT_PUBLIC_` variables did not reach the **build**. Nothing it shows is stored.
+
+When something is missing at runtime the response names it:
+
+```json
+{"missingAtRuntime": ["SUPABASE_SERVICE_ROLE_KEY"], "warnings": ["..."]}
+```
 
 For a full check against real services, with the app running:
 

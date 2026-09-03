@@ -20,6 +20,7 @@ const KEYS = [
   "B2_SECRET_ACCESS_KEY",
   "SUPABASE_SERVICE_ROLE_KEY",
   "SUPABASE_URL",
+  "NEXT_PUBLIC_SUPABASE_URL",
   "DATA_LAYER",
 ] as const;
 
@@ -69,6 +70,15 @@ describe("runtime configuration", () => {
     expect(env.dataLayer).toBe("mock");
     process.env.DATA_LAYER = "api";
     expect(env.dataLayer).toBe("api");
+  });
+
+  it("sees a NEXT_PUBLIC_ value that was only set at runtime", () => {
+    // Next freezes every process.env.NEXT_PUBLIC_X reference at build time, so a
+    // deployment that adds one as a runtime variable would otherwise be ignored —
+    // silently, because the expression that would read it is gone. The dynamic
+    // lookup is what makes this reachable on the server.
+    process.env.NEXT_PUBLIC_SUPABASE_URL = "https://runtime.supabase.co";
+    expect(env.supabaseUrl).toBe("https://runtime.supabase.co");
   });
 
   it("treats an empty string as unset", () => {

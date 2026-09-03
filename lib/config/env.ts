@@ -25,21 +25,53 @@ function first(...values: (string | undefined)[]): string {
   return "";
 }
 
+/**
+ * Reads a variable through a dynamic lookup, on the server only.
+ *
+ * Next replaces every `process.env.NEXT_PUBLIC_X` in the source — server code
+ * included — with the value present at build time, and the docs are explicit that
+ * the app "will no longer respond to changes to these environment variables"
+ * afterwards. So a NEXT_PUBLIC_ value added as a runtime variable is never read:
+ * the expression that would have read it no longer exists.
+ *
+ * Bracket access through a variable is not inlined, which leaves the real runtime
+ * value reachable. Guarded to the server because in the browser there is no real
+ * process.env behind the substitutions.
+ */
+function runtime(name: string): string | undefined {
+  if (typeof window !== "undefined") return undefined;
+  return process.env[name];
+}
+
 export const env = {
   // Data layer selection. The client (repository facade) can only read NEXT_PUBLIC_*
   // vars, so the client-facing switch MUST be NEXT_PUBLIC_DATA_LAYER (inlined by
   // Next at build). DATA_LAYER is the server-side alias.
   get dataLayer(): string {
-    return first(process.env.NEXT_PUBLIC_DATA_LAYER, process.env.DATA_LAYER) || "mock";
+    return (
+      first(
+        process.env.NEXT_PUBLIC_DATA_LAYER,
+        runtime("NEXT_PUBLIC_DATA_LAYER"),
+        process.env.DATA_LAYER,
+      ) || "mock"
+    );
   },
 
   // SUPABASE_URL is accepted as a fallback so the server still works when only the
   // non-public name was set. The browser can only ever see the NEXT_PUBLIC_ one.
   get supabaseUrl(): string {
-    return first(process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.SUPABASE_URL);
+    return first(
+      process.env.NEXT_PUBLIC_SUPABASE_URL,
+      runtime("NEXT_PUBLIC_SUPABASE_URL"),
+      process.env.SUPABASE_URL,
+    );
   },
   get supabaseAnonKey(): string {
-    return first(process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY, process.env.SUPABASE_ANON_KEY);
+    return first(
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
+      runtime("NEXT_PUBLIC_SUPABASE_ANON_KEY"),
+      process.env.SUPABASE_ANON_KEY,
+    );
   },
   get supabaseServiceRoleKey(): string {
     return first(process.env.SUPABASE_SERVICE_ROLE_KEY); // SERVER ONLY
@@ -86,7 +118,10 @@ export const env = {
       return first(process.env.EMAIL_FROM);
     },
     get appUrl(): string {
-      return first(process.env.NEXT_PUBLIC_APP_URL) || "http://localhost:3000";
+      return (
+        first(process.env.NEXT_PUBLIC_APP_URL, runtime("NEXT_PUBLIC_APP_URL")) ||
+        "http://localhost:3000"
+      );
     },
   },
 
