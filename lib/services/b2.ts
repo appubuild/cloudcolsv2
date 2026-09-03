@@ -13,23 +13,23 @@
 import "server-only";
 import { presignUrl, signRequest, type SigV4Config } from "./sigv4";
 import type { PresignRequest } from "./types";
-import { env } from "@/lib/config/env";
+import { serverEnv } from "@/lib/config/server-env";
 
 function config(): { sig: SigV4Config; endpoint: string; bucket: string } {
-  if (!env.b2.endpoint || !env.b2.bucket) {
+  if (!serverEnv.b2.endpoint || !serverEnv.b2.bucket) {
     throw new Error("B2_ENDPOINT / B2_BUCKET are not configured.");
   }
-  if (!env.b2.accessKeyId || !env.b2.secretAccessKey) {
+  if (!serverEnv.b2.accessKeyId || !serverEnv.b2.secretAccessKey) {
     throw new Error("B2_ACCESS_KEY_ID / B2_SECRET_ACCESS_KEY are not configured.");
   }
   return {
     sig: {
-      accessKeyId: env.b2.accessKeyId,
-      secretAccessKey: env.b2.secretAccessKey,
-      region: env.b2.region,
+      accessKeyId: serverEnv.b2.accessKeyId,
+      secretAccessKey: serverEnv.b2.secretAccessKey,
+      region: serverEnv.b2.region,
     },
-    endpoint: env.b2.endpoint,
-    bucket: env.b2.bucket,
+    endpoint: serverEnv.b2.endpoint,
+    bucket: serverEnv.b2.bucket,
   };
 }
 
@@ -177,8 +177,8 @@ export async function deleteObject(objectKey: string): Promise<void> {
 
 /** A CDN/convenience public URL for a key (used only for public share content). */
 export function publicUrl(objectKey: string): string {
-  if (env.b2.publicDomain) {
-    return `https://${env.b2.publicDomain}/${objectKey}`;
+  if (serverEnv.b2.publicDomain) {
+    return `https://${serverEnv.b2.publicDomain}/${objectKey}`;
   }
-  return `${originOf(env.b2.endpoint)}/${env.b2.bucket}/${objectKey}`;
+  return `${originOf(serverEnv.b2.endpoint)}/${serverEnv.b2.bucket}/${objectKey}`;
 }

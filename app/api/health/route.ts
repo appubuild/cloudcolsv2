@@ -1,4 +1,4 @@
-import { env } from "@/lib/config/env";
+import { serverEnv, serverConfig, configSource } from "@/lib/config/server-env";
 
 export const dynamic = "force-dynamic";
 
@@ -12,24 +12,29 @@ export async function GET() {
   // every page in the browser quietly serves fabricated data: sign-in appears to
   // work, uploads appear to succeed, files appear in the list — and the database
   // stays empty. Both are reported so one request tells you which.
+  // The client value must come from the static reference: that is the one Next
+  // inlined into the browser bundle, and therefore the one the browser will use.
   const client = process.env.NEXT_PUBLIC_DATA_LAYER ?? null;
-  const server = process.env.DATA_LAYER ?? null;
+  // The server value comes from the Worker's own bindings.
+  const server = serverConfig("DATA_LAYER", "NEXT_PUBLIC_DATA_LAYER") || null;
   const effectiveClient = client ?? "mock";
   const effectiveServer = server ?? client ?? "mock";
 
-  const supabaseConfigured = Boolean(env.supabaseUrl && env.supabaseServiceRoleKey);
-  const b2Configured = Boolean(env.b2.endpoint && env.b2.bucket && env.b2.accessKeyId && env.b2.secretAccessKey);
+  const supabaseConfigured = Boolean(serverEnv.supabaseUrl && serverEnv.supabaseServiceRoleKey);
+  const b2Configured = Boolean(
+    serverEnv.b2.endpoint && serverEnv.b2.bucket && serverEnv.b2.accessKeyId && serverEnv.b2.secretAccessKey,
+  );
 
   // Name what is actually missing. "supabase: false" sends someone back to a
   // dashboard with ten variables in it and no way to tell which one is wrong.
   const missing = (
     [
-      ["NEXT_PUBLIC_SUPABASE_URL (or SUPABASE_URL)", env.supabaseUrl],
-      ["SUPABASE_SERVICE_ROLE_KEY", env.supabaseServiceRoleKey],
-      ["B2_ENDPOINT", env.b2.endpoint],
-      ["B2_BUCKET", env.b2.bucket],
-      ["B2_ACCESS_KEY_ID", env.b2.accessKeyId],
-      ["B2_SECRET_ACCESS_KEY", env.b2.secretAccessKey],
+      ["SUPABASE_URL (or NEXT_PUBLIC_SUPABASE_URL)", serverEnv.supabaseUrl],
+      ["SUPABASE_SERVICE_ROLE_KEY", serverEnv.supabaseServiceRoleKey],
+      ["B2_ENDPOINT", serverEnv.b2.endpoint],
+      ["B2_BUCKET", serverEnv.b2.bucket],
+      ["B2_ACCESS_KEY_ID", serverEnv.b2.accessKeyId],
+      ["B2_SECRET_ACCESS_KEY", serverEnv.b2.secretAccessKey],
     ] as const
   )
     .filter(([, value]) => !value)
@@ -46,21 +51,39 @@ export async function GET() {
   if (effectiveClient === "mock") {
     warnings.push("The browser is serving mock data. Nothing it shows is stored anywhere.");
   }
-  if (!supabaseConfigured) {
+  if (missing.length) {
     warnings.push(
-      "Supabase is not configured at runtime. SUPABASE_SERVICE_ROLE_KEY is a runtime secret; " +
-        "setting it as a build variable leaves the server without it.",
+      `Missing on the server: ${missing.join(", ")}. Add them as RUNTIME variables ` +
+        "(Settings -> Variables and secrets), not build variables.",
     );
   }
   if (!b2Configured) {
-    warnings.push("Backblaze is not configured at runtime; uploads and downloads will fail.");
+    warnings.push("Backblaze is not configured; uploads and downloads will fail.");
+  }
+  if (!supabaseConfigured) {
+    warnings.push("Supabase is not configured; sign-in and every data request will fail.");
   }
 
   return Response.json({
     ok: warnings.length === 0,
     service: "cloudcols-api",
+    // So it is always possible to tell which build answered. Without it, a fix that
+    // has not finished deploying is indistinguishable from a fix that did not work.
+    build: process.env.CF_VERSION_METADATA_ID ?? process.env.WORKERS_CI_COMMIT_SHA ?? "unknown",
     dataLayer: { client: effectiveClient, server: effectiveServer },
     providers: { supabase: supabaseConfigured, b2: b2Configured },
+    // Whether each value came from the Worker's bindings or from process.env.
+    // "missing" against a name the dashboard clearly shows means the name differs
+    // from what the code reads — a typo, or the wrong one of the two settings pages.
+    sources: {
+      SUPABASE_URL: configSource("SUPABASE_URL"),
+      NEXT_PUBLIC_SUPABASE_URL: configSource("NEXT_PUBLIC_SUPABASE_URL"),
+      SUPABASE_SERVICE_ROLE_KEY: configSource("SUPABASE_SERVICE_ROLE_KEY"),
+      B2_ENDPOINT: configSource("B2_ENDPOINT"),
+      B2_BUCKET: configSource("B2_BUCKET"),
+      B2_ACCESS_KEY_ID: configSource("B2_ACCESS_KEY_ID"),
+      B2_SECRET_ACCESS_KEY: configSource("B2_SECRET_ACCESS_KEY"),
+    },
     ...(missing.length ? { missingAtRuntime: missing } : {}),
     ...(warnings.length ? { warnings } : {}),
     time: new Date().toISOString(),
