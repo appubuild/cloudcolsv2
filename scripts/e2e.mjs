@@ -151,6 +151,56 @@ try {
     check(bytes.status === 200 && body.byteLength === content.length, 'bytes come back from storage', `${body.byteLength} bytes`);
   }
 
+  /* ---------------------------------------------------- upload into a folder */
+  // A file uploaded while a folder was open used to land at the root: the upload
+  // ticket never carried the folder, so the server had nothing to file it under.
+  const folderRes = await api("/api/folders", {
+    token,
+    method: "POST",
+    body: { name: `E2E ${Date.now()}`, parentId: null },
+  });
+  const folder = folderRes.json?.data;
+  check(folderRes.status === 200 && folder?.id, "create a folder", `HTTP ${folderRes.status}`);
+
+  if (folder?.id) {
+    const inner = Buffer.from("inside the folder");
+    const it = await api("/api/files/upload-ticket", {
+      token,
+      method: "POST",
+      body: { filename: "in-folder.txt", sizeBytes: inner.length, mimeType: "text/plain", folderId: folder.id },
+    });
+    const itk = it.json?.data;
+    check(it.status === 200 && itk?.presignedUrl, "upload ticket for a folder", `HTTP ${it.status}`);
+
+    await fetch(itk.presignedUrl, { method: "PUT", body: inner });
+    const ic = await api("/api/files/confirm", {
+      token,
+      method: "POST",
+      body: { uploadId: itk.uploadId, fileId: itk.fileId },
+    });
+    check(ic.status === 200, "confirm the upload into the folder", `HTTP ${ic.status}`);
+
+    const inFolder = await api(`/api/files?folderId=${folder.id}`, { token });
+    const insideIds = (inFolder.json?.data?.items ?? []).map((f) => f.id);
+    check(insideIds.includes(itk.fileId), "the file is inside the folder it was uploaded to");
+
+    const atRoot = await api("/api/files?folderId=null", { token });
+    const rootIds = (atRoot.json?.data?.items ?? []).map((f) => f.id);
+    check(!rootIds.includes(itk.fileId), "and not sitting at the root as well");
+  }
+
+  /* --------------------------------------------------------- storage counted */
+  // The sidebar showed 0 B used however much had been uploaded: /api/auth/me
+  // answers in camelCase and the client read snake_case, so every field fell back
+  // to its default.
+  const meAfter = await api("/api/auth/me", { token });
+  const usedBytes = Number(meAfter.json?.data?.storageUsedBytes ?? 0);
+  check(usedBytes > 0, "used storage is reported to the client", `${usedBytes} bytes`);
+  check(
+    Object.prototype.hasOwnProperty.call(meAfter.json?.data ?? {}, "storageQuotaBytes"),
+    "the quota field is named the way the client reads it",
+  );
+
   /* ------------------------------------------------------------ categories */
   // A PNG was landing in "Other" with a generic icon and no preview. Two paths
   // have to work: the browser-supplied MIME type, and the extension fallback for

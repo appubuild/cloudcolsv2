@@ -39,7 +39,18 @@ export interface FilesRepository {
   trash(userId: string, ids: string[]): Promise<void>;
   restore(userId: string, ids: string[]): Promise<void>;
   destroy(userId: string, ids: string[]): Promise<void>;
-  createUploadTicket(userId: string, filename: string, sizeBytes: number, mimeType?: string): Promise<UploadTicket>;
+  /**
+   * folderId is where the file belongs. It was missing, so a file uploaded while a
+   * folder was open landed at the root instead — the folder the user was looking
+   * at was never told about it.
+   */
+  createUploadTicket(
+    userId: string,
+    filename: string,
+    sizeBytes: number,
+    mimeType?: string,
+    folderId?: string | null,
+  ): Promise<UploadTicket>;
   confirmUpload(userId: string, uploadId: string, fileId: string): Promise<File>;
   listTrash(userId: string): Promise<Paginated<FileListItem>>;
   /** All top-level + nested folders for a user (flat list), for navigation/breadcrumbs. */

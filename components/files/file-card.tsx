@@ -23,6 +23,7 @@ export function FileCard({
   onOpen,
   onContext,
   grid = true,
+  variant = grid ? "grid" : "list",
 }: {
   item: FileListItem;
   selected?: boolean;
@@ -30,6 +31,7 @@ export function FileCard({
   onOpen: (item: FileListItem) => void;
   onContext: (item: FileListItem, e: React.MouseEvent) => void;
   grid?: boolean;
+  variant?: "grid" | "list" | "gallery";
 }) {
   const isFolder = "parentId" in item;
   const file = item as FileType;
@@ -77,7 +79,35 @@ export function FileCard({
         )}
       </button>
 
-      {grid ? (
+      {variant === "gallery" ? (
+        <div className="flex flex-col">
+          {/* A tall preview so images are recognisable at a glance, which a 40px
+              icon beside the name never is. */}
+          {isFolder ? (
+            <span className="flex h-[104px] w-full items-center justify-center rounded-md bg-primary-soft text-primary">
+              <FolderIcon className="h-9 w-9" />
+            </span>
+          ) : (
+            <FileThumb
+              fileId={file.id}
+              category={file.category}
+              alt={file.originalFilename}
+              className="h-[104px] w-full rounded-md"
+            />
+          )}
+          <div className="mt-2 flex items-start gap-1.5">
+            <p className="min-w-0 flex-1 truncate text-sm font-medium text-foreground">
+              {isFolder ? folder.name : file.originalFilename}
+            </p>
+            {!isFolder && file.isFavorite && (
+              <Star className="mt-0.5 h-3.5 w-3.5 shrink-0 fill-amber-400 text-amber-400" />
+            )}
+          </div>
+          <p className="mt-0.5 text-xs text-muted-foreground">
+            {isFolder ? "Folder" : `${catLabel[file.category]} · ${formatBytes(file.sizeBytes)}`}
+          </p>
+        </div>
+      ) : variant === "grid" ? (
         <div className="flex flex-col">
           <div className="flex items-center gap-2.5">
             {isFolder ? (

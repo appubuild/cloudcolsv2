@@ -63,7 +63,13 @@ async function uploadTask(task: UploadTask): Promise<void> {
 
   try {
     // 1) Server issues a short-lived, scope-limited upload grant.
-    const ticket = await filesRepo.createUploadTicket(me.id, task.filename, task.sizeBytes, task.mimeType ?? "application/octet-stream");
+    const ticket = await filesRepo.createUploadTicket(
+      me.id,
+      task.filename,
+      task.sizeBytes,
+      task.mimeType ?? "application/octet-stream",
+      task.folderId,
+    );
     const fileId = "fileId" in ticket && (ticket as { fileId?: string }).fileId
       ? (ticket as { fileId: string }).fileId
       : await createPendingFileMock({ id: me.id }, task, ticket);

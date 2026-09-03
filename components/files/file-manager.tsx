@@ -6,6 +6,8 @@ import {
   Upload,
   LayoutGrid,
   List,
+  CheckSquare,
+  Image as ImageIcon,
   ArrowUpDown,
   Pencil,
   Trash2,
@@ -25,6 +27,7 @@ import { useFiles, useTrash, useFolders, useMutateFiles, useShare } from "@/lib/
 import { useUiStore } from "@/lib/store/ui";
 import { toast } from "@/lib/store/toast";
 import { enqueueUploads } from "@/lib/services/uploadService";
+import { filesRepo } from "@/lib/repositories";
 import { FileCard } from "./file-card";
 import { Breadcrumb } from "./breadcrumb";
 import { EmptyState } from "./empty-state";
@@ -32,6 +35,7 @@ import { useDebouncedValue } from "@/lib/hooks/useDebouncedValue";
 import { Button } from "@/components/ui/button";
 import { Skeleton, Badge } from "@/components/ui/misc";
 import { Dialog } from "@/components/ui/dialog";
+import { Dropdown, DropdownItem } from "@/components/ui/dropdown";
 import { Input, Label } from "@/components/ui/input";
 import { Tabs } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
@@ -67,6 +71,10 @@ export function FileManager({
   const { data: trashData } = useTrash();
 
   const [sort, setSort] = useState<SortKey>("name");
+  // A page at a time, so a folder with thousands of files does not try to render
+  // all of them and does not fetch all of them either.
+  const PAGE_SIZE = 24;
+  const [page, setPage] = useState(1);
   const [order, setOrder] = useState<"asc" | "desc">("asc");
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [previewId, setPreviewId] = useState<string | null>(null);
@@ -90,13 +98,21 @@ export function FileManager({
   }, [mode, folderPath]);
 
   const params = useMemo<FileListParams>(() => {
-    if (mode === "browse") return { folderId: currentFolderId, sort, order };
-    if (mode === "category" && category) return { category, sort, order };
-    if (mode === "favorites") return { favoritesOnly: true, sort, order };
-    if (mode === "recent") return { recent: true, sort: "accessed", order: "desc" };
-    if (mode === "search") return { search: debouncedSearch, sort, order };
-    return { sort, order };
-  }, [mode, category, currentFolderId, sort, order, debouncedSearch]);
+    const paging = { page, pageSize: PAGE_SIZE };
+    if (mode === "browse") return { folderId: currentFolderId, sort, order, ...paging };
+    if (mode === "category" && category) return { category, sort, order, ...paging };
+    if (mode === "favorites") return { favoritesOnly: true, sort, order, ...paging };
+    if (mode === "recent") return { recent: true, sort: "accessed", order: "desc", ...paging };
+    if (mode === "search") return { search: debouncedSearch, sort, order, ...paging };
+    return { sort, order, ...paging };
+  }, [mode, category, currentFolderId, sort, order, debouncedSearch, page]);
+
+  // Any change of what is being listed starts again at the first page; staying on
+  // page 7 of a folder you just left shows an empty screen.
+  useEffect(() => {
+    setPage(1);
+    setSelected(new Set());
+  }, [mode, category, currentFolderId, debouncedSearch, sort, order]);
 
   const { data, isLoading, isError, error } = useFiles(params);
   const { data: allFolders } = useFolders();
@@ -119,6 +135,9 @@ export function FileManager({
 
   const items = useMemo(() => (data?.items ?? []) as FileListItem[], [data]);
   const isTrashView = mode === "trash";
+  const effectiveItems = isTrashView ? (trashData?.items ?? []) : items;
+  const total = (isTrashView ? trashData?.total : data?.total) ?? effectiveItems.length;
+  const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
   const selectMany = (id: string) => {
     setSelected((s) => {
@@ -129,6 +148,72 @@ export function FileManager({
     });
   };
   const clearSelection = () => setSelected(new Set());
+
+  /**
+   * Bulk selection works over the items currently listed.
+   *
+   * Deliberately not "every match in the account": that would mean fetching every
+   * row to collect ids, and an action on thousands of files chosen without seeing
+   * them is not something to make easy. The category pages in the sidebar are the
+   * way to narrow first, then select here.
+   */
+  const selectWhere = (predicate: (item: FileListItem) => boolean) => {
+    setSelected((s) => {
+      const next = new Set(s);
+      for (const item of effectiveItems) if (predicate(item)) next.add(item.id);
+      return next;
+    });
+  };
+
+  const isFolderItem = (item: FileListItem) => "parentId" in item;
+
+  /** Favourites the selected files. Folders have their own flag and their own action. */
+  const favoriteSelected = async () => {
+    const ids = effectiveItems
+      .filter((i) => selected.has(i.id) && !isFolderItem(i) && !(i as File).isFavorite)
+      .map((i) => i.id);
+    if (ids.length === 0) {
+      toast.info("Nothing to favourite", "The selected files are already favourites.");
+      return;
+    }
+    await Promise.all(ids.map((id) => toggleFavorite.mutateAsync(id)));
+    clearSelection();
+  };
+
+  /**
+   * Downloads the selected files, one at a time.
+   *
+   * Sequential and paced on purpose: browsers block a page that starts many
+   * downloads at once, and silently — the first two arrive and the rest do not.
+   * There is no zip here because zipping would mean pulling every file through
+   * the server, which is the one thing this architecture avoids.
+   */
+  const downloadSelected = async () => {
+    const files = effectiveItems.filter((i) => selected.has(i.id) && !isFolderItem(i));
+    if (files.length === 0) {
+      toast.info("Nothing to download", "Folders cannot be downloaded yet.");
+      return;
+    }
+    if (files.length > 1) {
+      toast.info(`Downloading ${files.length} files`, "Your browser may ask permission for multiple downloads.");
+    }
+    for (const f of files) {
+      try {
+        const { url } = await filesRepo.getDownloadUrl("", f.id);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = (f as File).originalFilename;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        await new Promise((r) => setTimeout(r, 400));
+      } catch {
+        toast.error("Download failed", (f as File).originalFilename);
+      }
+    }
+    clearSelection();
+  };
+  const categoryOf = (item: FileListItem) => (isFolderItem(item) ? null : (item as File).category);
 
   const openItem = (item: FileListItem) => {
     if ("parentId" in item) {
@@ -188,15 +273,14 @@ export function FileManager({
     }
   };
 
-  const effectiveItems = isTrashView ? (trashData?.items ?? []) : items;
   const selectedCount = selected.size;
 
   const body = (() => {
     if (isLoading)
       return (
-        <div className={cn("grid gap-3", viewMode === "grid" ? "grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5" : "grid-cols-1")}>
-          {Array.from({ length: viewMode === "grid" ? 10 : 5 }).map((_, i) => (
-            <Skeleton key={i} className={viewMode === "grid" ? "h-28" : "h-12"} />
+        <div className={cn("grid gap-3", viewMode === "list" ? "grid-cols-1" : "grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5")}>
+          {Array.from({ length: viewMode === "list" ? 5 : 10 }).map((_, i) => (
+            <Skeleton key={i} className={viewMode === "list" ? "h-12" : viewMode === "gallery" ? "h-40" : "h-28"} />
           ))}
         </div>
       );
@@ -227,6 +311,24 @@ export function FileManager({
             ) : undefined
           }
         />
+      );
+    if (viewMode === "gallery")
+      return (
+        // Fewer, wider columns than the compact grid: the preview is the content
+        // here, so it gets the room.
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-5">
+          {effectiveItems.map((item) => (
+            <FileCard
+              key={item.id}
+              item={item}
+              variant="gallery"
+              selected={selected.has(item.id)}
+              onSelect={selectMany}
+              onOpen={openItem}
+              onContext={() => {}}
+            />
+          ))}
+        </div>
       );
     if (viewMode === "grid")
       return (
@@ -307,16 +409,51 @@ export function FileManager({
             <button onClick={() => setViewMode("grid")} aria-label="Grid view" className={cn("rounded p-1.5", viewMode === "grid" ? "bg-surface text-primary shadow-sm" : "text-muted-foreground")}>
               <LayoutGrid className="h-4 w-4" />
             </button>
+            <button onClick={() => setViewMode("gallery")} aria-label="Large preview" title="Large preview" className={cn("rounded p-1.5", viewMode === "gallery" ? "bg-surface text-primary shadow-sm" : "text-muted-foreground")}>
+              <ImageIcon className="h-4 w-4" />
+            </button>
             <button onClick={() => setViewMode("list")} aria-label="List view" className={cn("rounded p-1.5", viewMode === "list" ? "bg-surface text-primary shadow-sm" : "text-muted-foreground")}>
               <List className="h-4 w-4" />
             </button>
           </div>
+          {effectiveItems.length > 0 && (
+            <Dropdown
+              trigger={
+                <Button variant="ghost" size="sm">
+                  <CheckSquare className="h-4 w-4" /> Select
+                </Button>
+              }
+            >
+              <DropdownItem onClick={() => selectWhere(() => true)}>
+                All {effectiveItems.length} on this page
+              </DropdownItem>
+              <DropdownItem onClick={() => selectWhere(isFolderItem)}>All folders</DropdownItem>
+              <DropdownItem onClick={() => selectWhere((i) => !isFolderItem(i))}>All files</DropdownItem>
+              <DropdownItem onClick={() => selectWhere((i) => categoryOf(i) === "image")}>Images</DropdownItem>
+              <DropdownItem onClick={() => selectWhere((i) => categoryOf(i) === "video")}>Videos</DropdownItem>
+              <DropdownItem onClick={() => selectWhere((i) => categoryOf(i) === "audio")}>Audio</DropdownItem>
+              <DropdownItem onClick={() => selectWhere((i) => categoryOf(i) === "document")}>Documents</DropdownItem>
+              <DropdownItem onClick={() => selectWhere((i) => categoryOf(i) === "pdf")}>PDFs</DropdownItem>
+              <DropdownItem onClick={() => selectWhere((i) => categoryOf(i) === "archive")}>Archives</DropdownItem>
+              <DropdownItem onClick={clearSelection}>Clear selection</DropdownItem>
+            </Dropdown>
+          )}
           {selectedCount > 0 && <Badge tone="info">{selectedCount} selected</Badge>}
         </div>
       </div>
 
       {selectedCount > 0 && (
         <div className="flex flex-wrap items-center gap-2 rounded-lg border border-primary/30 bg-primary-soft p-2.5">
+          {!isTrashView && (
+            <>
+              <Button variant="secondary" size="sm" onClick={() => void favoriteSelected()}>
+                <Star className="h-4 w-4" /> Favorite
+              </Button>
+              <Button variant="secondary" size="sm" onClick={() => void downloadSelected()}>
+                <Download className="h-4 w-4" /> Download
+              </Button>
+            </>
+          )}
           <Button variant="secondary" size="sm" onClick={() => setMoveTargets(Array.from(selected))}>
             <Copy className="h-4 w-4" /> Move
           </Button>
@@ -341,6 +478,22 @@ export function FileManager({
       )}
 
       {body}
+
+      {pageCount > 1 && (
+        <div className="flex items-center justify-between gap-3 pt-1">
+          <p className="text-xs text-muted-foreground tabular-nums">
+            Page {page} of {pageCount} · {total} item{total === 1 ? "" : "s"}
+          </p>
+          <div className="flex items-center gap-2">
+            <Button variant="secondary" size="sm" disabled={page <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))}>
+              Previous
+            </Button>
+            <Button variant="secondary" size="sm" disabled={page >= pageCount} onClick={() => setPage((p) => Math.min(pageCount, p + 1))}>
+              Next
+            </Button>
+          </div>
+        </div>
+      )}
 
       {/* Drag & drop layer */}
       {dragOver && (

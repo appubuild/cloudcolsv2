@@ -297,7 +297,7 @@ class MockFilesRepository implements FilesRepository {
     saveDb();
   }
 
-  async createUploadTicket(userId: string, filename: string, sizeBytes: number, mimeType?: string) {
+  async createUploadTicket(userId: string, filename: string, sizeBytes: number, mimeType?: string, folderId?: string | null) {
     await delay();
     const db = getDb();
     const user = requireUser(db, userId);

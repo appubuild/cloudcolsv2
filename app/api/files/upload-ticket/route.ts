@@ -11,6 +11,7 @@ interface Body {
   filename: string;
   sizeBytes: number;
   mimeType?: string;
+  folderId?: string | null;
 }
 
 export const POST = limited(async (req: Request) => {
@@ -21,6 +22,23 @@ export const POST = limited(async (req: Request) => {
 
   const quota = await getQuota(user.id);
   assertCanUpload(quota, body.sizeBytes);
+
+  // The destination folder must belong to the caller. Checked here rather than
+  // trusted, and answered as NOT_FOUND rather than FORBIDDEN: confirming that an id
+  // exists would let someone probe for other people's folders.
+  let folderId: string | null = null;
+  if (body.folderId) {
+    const admin = createAdminClient();
+    const { data: folder } = await admin
+      .from("folders")
+      .select("id")
+      .eq("id", body.folderId)
+      .eq("owner_id", user.id)
+      .is("trashed_at", null)
+      .maybeSingle();
+    if (!folder) throw new ApiError("FOLDER_NOT_FOUND", 404, "That folder does not exist.");
+    folderId = String(folder.id);
+  }
 
   const category = deriveCategory(body.mimeType ?? "", body.filename);
   const objectKey = buildObjectKey(user.id, category, body.filename);
@@ -33,6 +51,7 @@ export const POST = limited(async (req: Request) => {
     .from("files")
     .insert({
       owner_id: user.id,
+      folder_id: folderId,
       object_key: objectKey,
       original_filename: body.filename.trim(),
       mime_type: contentType,

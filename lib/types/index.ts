@@ -247,7 +247,11 @@ export interface StorageSnapshot {
   };
 }
 
-export type ViewMode = "grid" | "list";
+/**
+ * "gallery" is grid with a large preview: the picture is the point, so the card
+ * leads with it instead of a 40px icon beside the name.
+ */
+export type ViewMode = "grid" | "list" | "gallery";
 export type Theme = "light" | "dark";
 
 // A short-lived, scope-limited upload grant returned by the server. The client

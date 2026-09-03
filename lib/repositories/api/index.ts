@@ -55,14 +55,17 @@ class ApiAuthRepository implements AuthRepository {
       name: email.split("@")[0] ?? "User",
       username: (email.split("@")[0] ?? "user").replace(/[^a-z0-9]/gi, ""),
       avatarUrl: null,
-      planId: String(profile.plan_id ?? "plan_free"),
-      storageUsedBytes: Number(profile.storage_used_bytes ?? 0),
-      storageQuotaBytes: Number(profile.storage_quota_bytes ?? 5 * 1024 * 1024 * 1024),
+      // /api/auth/me answers in camelCase. Reading snake_case here meant every
+      // field fell back to its default, so storage always showed 0 B used however
+      // much had been uploaded, and the plan always read as free.
+      planId: String(profile.planId ?? "plan_free"),
+      storageUsedBytes: Number(profile.storageUsedBytes ?? 0),
+      storageQuotaBytes: Number(profile.storageQuotaBytes ?? 5 * 1024 * 1024 * 1024),
       role: "user",
-      developerEnabled: Boolean(profile.developer_enabled),
+      developerEnabled: Boolean(profile.developerEnabled),
       status: (profile.status as User["status"]) ?? "active",
-      createdAt: String(profile.created_at ?? new Date().toISOString()),
-      lastLoginAt: String(profile.last_login_at ?? new Date().toISOString()),
+      createdAt: String(profile.createdAt ?? new Date().toISOString()),
+      lastLoginAt: String(profile.lastLoginAt ?? new Date().toISOString()),
     };
   }
 
@@ -151,9 +154,21 @@ class ApiFilesRepository implements FilesRepository {
   async destroy(userId: string, ids: string[]): Promise<void> {
     await Promise.all(ids.map((id) => apiClient.del(`/api/files/${id}?force=true`)));
   }
-  async createUploadTicket(userId: string, filename: string, sizeBytes: number, mimeType?: string): Promise<UploadTicket> {
-    // Pass the real type so the server derives the category correctly.
-    return apiClient.post<UploadTicket>("/api/files/upload-ticket", { filename, sizeBytes, mimeType });
+  async createUploadTicket(
+    userId: string,
+    filename: string,
+    sizeBytes: number,
+    mimeType?: string,
+    folderId?: string | null,
+  ): Promise<UploadTicket> {
+    // The real type so the server derives the category correctly, and the folder so
+    // the file lands where the user is looking.
+    return apiClient.post<UploadTicket>("/api/files/upload-ticket", {
+      filename,
+      sizeBytes,
+      mimeType,
+      folderId: folderId ?? null,
+    });
   }
   async confirmUpload(userId: string, uploadId: string, fileId: string): Promise<File> {
     return apiClient.post<File>("/api/files/confirm", { uploadId, fileId });
