@@ -56,6 +56,14 @@ export interface FilesRepository {
   recentAccess(userId: string, limit?: number): Promise<FileListItem[]>;
   /** Per-category byte totals (including trash if included). */
   usageSummary(userId: string): Promise<{ category: FileCategory; bytes: number; count: number }[]>;
+  /**
+   * A short-lived URL the browser can read the bytes from directly.
+   *
+   * Needed for previews and thumbnails as much as for downloads: without it the
+   * UI had no way to reach a stored file, and the preview rendered a placeholder
+   * with the filename drawn on it instead of the file.
+   */
+  getDownloadUrl(userId: string, fileId: string): Promise<{ url: string; expiresIn: number }>;
 }
 
 export interface AuthRepository {

@@ -3,7 +3,7 @@
 import type { File as FileType, FileListItem, Folder as FolderType, FileCategory } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { formatBytes, formatDate } from "@/lib/utils";
-import { CategoryThumb } from "./category-thumb";
+import { FileThumb } from "./file-thumb";
 import { Folder as FolderIcon, Star } from "lucide-react";
 
 const catLabel: Record<FileCategory, string> = {
@@ -85,7 +85,7 @@ export function FileCard({
                 <FolderIcon className="h-5 w-5" />
               </span>
             ) : (
-              categoryMedia(file.category)
+              categoryMedia(file)
             )}
             {file.isFavorite && (
               <Star className="ml-auto ml-0 h-4 w-4 shrink-0 fill-amber-400 text-amber-400" />
@@ -105,7 +105,7 @@ export function FileCard({
               <FolderIcon className="h-4 w-4" />
             </span>
           ) : (
-            categoryMedia(file.category, 8)
+            categoryMedia(file, 8)
           )}
           <span className="min-w-0 flex-1 truncate text-sm font-medium text-foreground">
             {isFolder ? folder.name : file.originalFilename}
@@ -123,6 +123,13 @@ export function FileCard({
   );
 }
 
-function categoryMedia(cat: FileCategory, size = 6) {
-  return <CategoryThumb category={cat} className={cn("h-11 w-11", size === 8 && "h-8 w-8")} />;
+function categoryMedia(file: FileType, size = 6) {
+  return (
+    <FileThumb
+      fileId={file.id}
+      category={file.category}
+      alt={file.originalFilename}
+      className={cn("h-11 w-11", size === 8 && "h-8 w-8")}
+    />
+  );
 }

@@ -7,6 +7,7 @@ import { filesRepo } from "@/lib/repositories";
 import { useAuthStore } from "@/lib/store/auth";
 import { Spinner, Badge } from "@/components/ui/misc";
 import { CategoryThumb } from "@/components/files/category-thumb";
+import { useFileUrl } from "@/lib/hooks/useFileUrl";
 import { formatBytes } from "@/lib/utils";
 import { toast } from "@/lib/store/toast";
 
@@ -110,14 +111,41 @@ export function PreviewPortal({ fileId, onClose }: { fileId: string | null; onCl
   );
 }
 
+/**
+ * Renders the actual file.
+ *
+ * Every branch here used to be a placeholder: images drew an SVG with the
+ * filename on it, and video and audio pointed at empty data: URLs. Nothing ever
+ * showed the file. They now read from a short-lived signed URL, so the bytes come
+ * straight from storage and never through the app.
+ */
 function FileRenderer({ file }: { file: File }) {
   const cat = file.category;
+  const previewable = cat === "image" || cat === "video" || cat === "audio" || cat === "pdf";
+  const { data, isLoading, isError } = useFileUrl(file.id, previewable);
+
+  if (previewable && isLoading) {
+    return <Spinner className="h-8 w-8" />;
+  }
+
+  if (previewable && (isError || !data?.url)) {
+    return (
+      <div className="flex flex-col items-center justify-center text-center text-white/70">
+        <CategoryThumb category={cat} className="mb-4" />
+        <p className="text-sm font-medium">{file.originalFilename}</p>
+        <p className="mt-3 text-xs">This file could not be opened. Try again in a moment.</p>
+      </div>
+    );
+  }
+
+  const url = data?.url ?? "";
 
   if (cat === "image") {
     return (
-      // eslint-disable-next-line @next/next/no-img-element
+      // eslint-disable-next-line @next/next/no-img-element -- a short-lived signed
+      // URL on a third-party origin; the Next image optimiser cannot fetch it.
       <img
-        src={`data:image/svg+xml;utf8,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 120"><rect width="200" height="120" fill="#1e293b"/><text x="100" y="64" font-family="sans-serif" font-size="16" text-anchor="middle" fill="#94a3b8">${file.originalFilename}</text></svg>`)}`}
+        src={url}
         alt={file.originalFilename}
         className="max-h-full max-w-full rounded-lg object-contain"
       />
@@ -126,11 +154,9 @@ function FileRenderer({ file }: { file: File }) {
 
   if (cat === "video") {
     return (
-      <video
-        className="max-h-full max-w-full rounded-lg"
-        controls
-        src={`data:video/mp4;base64,`}
-      >
+      // preload="metadata" so opening the preview does not pull the whole file;
+      // playback streams through range requests from storage.
+      <video className="max-h-full max-w-full rounded-lg" controls preload="metadata" src={url}>
         Your browser does not support video playback.
       </video>
     );
@@ -141,18 +167,20 @@ function FileRenderer({ file }: { file: File }) {
       <div className="w-full max-w-md rounded-lg bg-white/5 p-8 text-center text-white">
         <CategoryThumb category="audio" className="mx-auto mb-4" />
         <p className="text-sm font-medium">{file.originalFilename}</p>
-        <audio className="mt-6 w-full" controls src={`data:audio/mpeg;base64,`} />
+        <audio className="mt-6 w-full" controls preload="metadata" src={url} />
       </div>
     );
   }
 
   if (cat === "pdf") {
     return (
-      <div className="flex h-full w-full flex-col items-center justify-center text-center text-white/70">
-        <CategoryThumb category="pdf" className="mb-4" />
-        <p className="text-sm">{file.originalFilename}</p>
-        <Badge tone="muted" className="mt-3">PDF preview loads in the full app</Badge>
-      </div>
+      <iframe
+        src={url}
+        title={file.originalFilename}
+        className="h-full w-full rounded-lg bg-white"
+        // The PDF is untrusted content, so it renders with no access to this origin.
+        sandbox=""
+      />
     );
   }
 

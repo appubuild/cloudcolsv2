@@ -134,6 +134,39 @@ try {
     check(bytes.status === 200 && body.byteLength === content.length, 'bytes come back from storage', `${body.byteLength} bytes`);
   }
 
+  /* ------------------------------------------------------------ categories */
+  // A PNG was landing in "Other" with a generic icon and no preview. Two paths
+  // have to work: the browser-supplied MIME type, and the extension fallback for
+  // when the browser supplies none — which it does for anything it does not
+  // recognise, and which had no image, video or audio entries at all.
+  const PNG = Buffer.from(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+    "base64",
+  );
+
+  for (const [label, mimeType] of [
+    ["with a MIME type", "image/png"],
+    ["with no MIME type", undefined],
+  ]) {
+    const pt = await api("/api/files/upload-ticket", {
+      token,
+      method: "POST",
+      body: { filename: "photo.png", sizeBytes: PNG.length, ...(mimeType ? { mimeType } : {}) },
+    });
+    const pticket = pt.json?.data;
+    if (!pticket?.presignedUrl) {
+      check(false, `PNG ticket ${label}`, `HTTP ${pt.status}`);
+      continue;
+    }
+    await fetch(pticket.presignedUrl, { method: "PUT", body: PNG });
+    const pc = await api("/api/files/confirm", {
+      token,
+      method: "POST",
+      body: { uploadId: pticket.uploadId, fileId: pticket.fileId },
+    });
+    check(pc.json?.data?.category === "image", `PNG is categorised as an image ${label}`, `got "${pc.json?.data?.category}"`);
+  }
+
   /* ----------------------------------------------------------------- share */
   const share = await api('/api/shares', {
     token,

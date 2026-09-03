@@ -427,6 +427,16 @@ class MockFilesRepository implements FilesRepository {
       .filter((c) => byCat.has(c))
       .map((c) => ({ category: c, ...byCat.get(c)! }));
   }
+
+  /**
+   * There are no stored bytes in mock mode, so there is no URL to hand out.
+   * Refusing is the honest answer: callers show their fallback rather than
+   * pointing an <img> at something that will never load.
+   */
+  async getDownloadUrl(): Promise<{ url: string; expiresIn: number }> {
+    await delay(120);
+    throw new CloudColsError("NOT_AVAILABLE", 404, "File contents are not available with mock data.");
+  }
 }
 
 // ---------------------------------------------------------------------------

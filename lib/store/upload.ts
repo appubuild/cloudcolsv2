@@ -10,6 +10,14 @@ export interface UploadTask {
   filename: string;
   sizeBytes: number;
   mimeType?: string;
+  /**
+   * The picked File, kept so the bytes can actually be sent.
+   *
+   * The queue used to carry only a name and a size, so the upload step had
+   * nothing to PUT: it waited 400ms and reported success while storage stayed
+   * empty. Held in memory only — it is never serialised anywhere.
+   */
+  file?: File;
   progress: number; // 0–100
   status: UploadStatus;
   speedBytesPerSec: number;
@@ -25,7 +33,7 @@ interface UploadState {
   open: boolean;
   tasks: UploadTask[];
   setOpen: (open: boolean) => void;
-  addTasks: (tasks: { filename: string; sizeBytes: number; mimeType?: string; folderId: string | null }[]) => void;
+  addTasks: (tasks: { filename: string; sizeBytes: number; mimeType?: string; file?: File; folderId: string | null }[]) => void;
   update: (id: string, patch: Partial<UploadTask>) => void;
   cancel: (id: string) => void;
   retry: (id: string) => void;

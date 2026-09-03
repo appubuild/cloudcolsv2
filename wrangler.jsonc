@@ -23,8 +23,16 @@
   //   SUPABASE_SERVICE_ROLE_KEY, B2_ACCESS_KEY_ID, B2_SECRET_ACCESS_KEY,
   //   ADMIN_TOKEN_SECRET, CDN_TICKET_SECRET, JOBS_TOKEN, RESEND_API_KEY
   "vars": {
+    // NEXT_PUBLIC_DATA_LAYER is inlined into the browser bundle at BUILD time, so
+    // this copy only serves the server. It must ALSO be set as a build variable,
+    // or the browser falls back to mock data while the server talks to the real
+    // backend — and nothing in the UI says so.
     "NEXT_PUBLIC_DATA_LAYER": "api",
     "DATA_LAYER": "api",
-    "B2_REGION": "us-east-005"
+    // Not secrets: the endpoint and bucket appear in every presigned URL the
+    // browser is handed, and neither grants anything without the key pair.
+    "B2_ENDPOINT": "s3.us-east-005.backblazeb2.com",
+    "B2_REGION": "us-east-005",
+    "B2_BUCKET": "cloudcols-prod"
   }
 }

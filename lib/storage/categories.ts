@@ -54,6 +54,21 @@ export function deriveCategory(mime: string, filename: string): FileCategory {
   ) {
     return "archive";
   }
+  // Extension fallback. Browsers leave File.type empty for anything they do not
+  // recognise, and some send octet-stream for files they do — so without image,
+  // video and audio here, a .png uploaded with no MIME landed in "Other" with a
+  // generic icon and no preview.
+  if (["jpg", "jpeg", "png", "gif", "webp", "bmp", "avif", "heic", "heif", "ico", "tif", "tiff"].includes(ext)) {
+    return "image";
+  }
+  if (["mp4", "mov", "webm", "avi", "mkv", "m4v", "wmv", "flv", "3gp", "mpeg", "mpg"].includes(ext)) {
+    return "video";
+  }
+  if (["mp3", "wav", "ogg", "m4a", "aac", "flac", "opus", "wma", "aiff"].includes(ext)) {
+    return "audio";
+  }
+  if (ext === "pdf") return "pdf";
+  if (["zip", "rar", "7z", "gz", "tar", "bz2", "xz", "tgz"].includes(ext)) return "archive";
   if (
     ["txt", "csv", "md", "json", "xml", "svg", "doc", "docx", "xls", "xlsx", "ppt", "pptx", "rtf"]
       .includes(ext)

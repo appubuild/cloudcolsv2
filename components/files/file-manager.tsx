@@ -140,8 +140,9 @@ export function FileManager({
   };
 
   const handleUpload = (files: FileList) => {
-    const list = Array.from(files).map((f) => ({ name: f.name, size: f.size, mimeType: f.type || undefined, folderId: currentFolderId }));
-    enqueueUploads(list);
+    // Pass the File objects themselves — the upload needs the bytes, not just
+    // the name and size.
+    enqueueUploads(Array.from(files).map((file) => ({ file, folderId: currentFolderId })));
   };
 
   // Window-level drag/drop detection so files can be dropped anywhere.

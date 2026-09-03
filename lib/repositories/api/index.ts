@@ -158,6 +158,12 @@ class ApiFilesRepository implements FilesRepository {
   async confirmUpload(userId: string, uploadId: string, fileId: string): Promise<File> {
     return apiClient.post<File>("/api/files/confirm", { uploadId, fileId });
   }
+  async getDownloadUrl(userId: string, fileId: string): Promise<{ url: string; expiresIn: number }> {
+    const res = await apiClient.get<{ presignedUrl: string; expiresIn: number }>(
+      `/api/files/download?fileId=${encodeURIComponent(fileId)}`,
+    );
+    return { url: res.presignedUrl, expiresIn: res.expiresIn };
+  }
   async listTrash(userId: string): Promise<Paginated<FileListItem>> {
     return apiClient.get<Paginated<FileListItem>>("/api/files/trash");
   }
