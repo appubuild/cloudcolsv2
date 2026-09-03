@@ -22,8 +22,8 @@ export function MockDataBanner() {
     >
       <AlertTriangle className="h-4 w-4 shrink-0" />
       <span>
-        Demo data. Nothing here is saved — set <code className="font-mono">NEXT_PUBLIC_DATA_LAYER=api</code> as a
-        build variable to connect this deployment to its backend.
+        Demo data. Nothing here is saved — this build was made with{" "}
+        <code className="font-mono">NEXT_PUBLIC_DATA_LAYER=mock</code>.
       </span>
     </div>
   );

@@ -66,8 +66,15 @@ describe("runtime configuration", () => {
     expect(env.supabaseUrl).toBe("https://project.supabase.co");
   });
 
-  it("falls back to mock only when no data layer is configured", () => {
-    expect(env.dataLayer).toBe("mock");
+  it("defaults to the real backend, with mock opt-in by name", () => {
+    // The default used to be mock, so a deployment where the variable did not
+    // reach the build served fabricated data while looking healthy. Failing to
+    // reach a backend is a problem someone can act on; invented data is not.
+    expect(env.dataLayer, "no variable set").toBe("api");
+
+    process.env.DATA_LAYER = "mock";
+    expect(env.dataLayer, "mock has to be asked for").toBe("mock");
+
     process.env.DATA_LAYER = "api";
     expect(env.dataLayer).toBe("api");
   });

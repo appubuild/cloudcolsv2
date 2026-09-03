@@ -12,13 +12,17 @@ export async function GET() {
   // every page in the browser quietly serves fabricated data: sign-in appears to
   // work, uploads appear to succeed, files appear in the list — and the database
   // stays empty. Both are reported so one request tells you which.
-  // The client value must come from the static reference: that is the one Next
-  // inlined into the browser bundle, and therefore the one the browser will use.
-  const client = process.env.NEXT_PUBLIC_DATA_LAYER ?? null;
-  // The server value comes from the Worker's own bindings.
+  // Reading NEXT_PUBLIC_DATA_LAYER here does NOT tell us what the browser will
+  // use. Next may have inlined it at build time, or left it as a lookup that finds
+  // the runtime binding — and this endpoint runs on the server either way. It
+  // reported "api" while the browser was demonstrably on mock.
+  //
+  // What is true regardless: mock is opt-in by name now, so the browser uses the
+  // real backend unless someone deliberately built it with mock. The banner in the
+  // app is the authority on what the browser is actually doing.
+  const buildTimeValue = process.env.NEXT_PUBLIC_DATA_LAYER ?? null;
   const server = serverConfig("DATA_LAYER", "NEXT_PUBLIC_DATA_LAYER") || null;
-  const effectiveClient = client ?? "mock";
-  const effectiveServer = server ?? client ?? "mock";
+  const effectiveServer = server ?? "api";
 
   const supabaseConfigured = Boolean(serverEnv.supabaseUrl && serverEnv.supabaseServiceRoleKey);
   const b2Configured = Boolean(
@@ -41,15 +45,11 @@ export async function GET() {
     .map(([name]) => name);
 
   const warnings: string[] = [];
-  if (effectiveClient !== effectiveServer) {
-    warnings.push(
-      `The browser will use "${effectiveClient}" while the server uses "${effectiveServer}". ` +
-        "Set NEXT_PUBLIC_DATA_LAYER as a BUILD variable (it is inlined into the bundle) " +
-        "and DATA_LAYER as a runtime variable, to the same value.",
-    );
+  if (effectiveServer === "mock") {
+    warnings.push("The server is set to mock. Nothing it returns is stored anywhere.");
   }
-  if (effectiveClient === "mock") {
-    warnings.push("The browser is serving mock data. Nothing it shows is stored anywhere.");
+  if (buildTimeValue === "mock") {
+    warnings.push("This build was made with NEXT_PUBLIC_DATA_LAYER=mock; the browser will serve demo data.");
   }
   if (missing.length) {
     warnings.push(
@@ -70,7 +70,7 @@ export async function GET() {
     // So it is always possible to tell which build answered. Without it, a fix that
     // has not finished deploying is indistinguishable from a fix that did not work.
     build: process.env.CF_VERSION_METADATA_ID ?? process.env.WORKERS_CI_COMMIT_SHA ?? "unknown",
-    dataLayer: { client: effectiveClient, server: effectiveServer },
+    dataLayer: { server: effectiveServer, builtWith: buildTimeValue },
     providers: { supabase: supabaseConfigured, b2: b2Configured },
     // Whether each value came from the Worker's bindings or from process.env.
     // "missing" against a name the dashboard clearly shows means the name differs

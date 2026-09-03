@@ -28,7 +28,19 @@ import {
   apiAdminRepo,
 } from "./api";
 
-export const useApi = env.dataLayer === "api";
+/**
+ * The real backend unless mock data was explicitly asked for.
+ *
+ * This used to be `=== "api"`, so anything other than that exact value — most
+ * often the variable simply not reaching the build, since NEXT_PUBLIC_* are
+ * inlined at build time and a runtime copy is invisible to the browser — meant
+ * mock. A deployment with a working backend then served fabricated data: sign-in
+ * succeeded, uploads reported success, files appeared, and nothing was stored.
+ *
+ * Defaulting the other way makes the failure honest. A missing backend now shows
+ * errors, which is a problem someone can act on; fabricated data is not.
+ */
+export const useApi = env.dataLayer !== "mock";
 
 export const filesRepo = useApi ? apiFilesRepo : mockFiles;
 export const authRepo = useApi ? apiAuthRepo : mockAuth;

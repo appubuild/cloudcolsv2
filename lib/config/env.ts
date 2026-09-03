@@ -47,13 +47,16 @@ export const env = {
   // Data layer selection. The client (repository facade) can only read NEXT_PUBLIC_*
   // vars, so the client-facing switch MUST be NEXT_PUBLIC_DATA_LAYER (inlined by
   // Next at build). DATA_LAYER is the server-side alias.
+  // Defaults to the real backend. Mock is a development scaffold and has to be
+  // asked for by name: defaulting to it meant a misconfigured deployment quietly
+  // served invented data instead of failing.
   get dataLayer(): string {
     return (
       first(
         process.env.NEXT_PUBLIC_DATA_LAYER,
         runtime("NEXT_PUBLIC_DATA_LAYER"),
         process.env.DATA_LAYER,
-      ) || "mock"
+      ) || "api"
     );
   },
 

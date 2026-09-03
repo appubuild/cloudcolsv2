@@ -5,12 +5,13 @@
 // Phase 2 layout we prefer server-side sessions; this remains available.
 
 import { createClient } from "@supabase/supabase-js";
-import { env } from "@/lib/config/env";
+import { publicConfig } from "@/lib/config/public-config";
 
 let client: ReturnType<typeof createClient> | null = null;
 
 export function getBrowserClient() {
-  if (!env.supabaseUrl || !env.supabaseAnonKey) return null;
-  if (!client) client = createClient(env.supabaseUrl, env.supabaseAnonKey);
+  const { supabaseUrl, supabaseAnonKey } = publicConfig();
+  if (!supabaseUrl || !supabaseAnonKey) return null;
+  if (!client) client = createClient(supabaseUrl, supabaseAnonKey);
   return client;
 }

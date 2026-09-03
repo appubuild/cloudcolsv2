@@ -75,7 +75,8 @@ export const serverEnv = {
     return serverConfig("SUPABASE_SERVICE_ROLE_KEY");
   },
   get dataLayer(): string {
-    return serverConfig("DATA_LAYER", "NEXT_PUBLIC_DATA_LAYER") || "mock";
+    // Mock has to be asked for by name; see lib/repositories/index.ts.
+    return serverConfig("DATA_LAYER", "NEXT_PUBLIC_DATA_LAYER") || "api";
   },
   b2: {
     get endpoint(): string {

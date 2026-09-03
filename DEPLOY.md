@@ -17,30 +17,24 @@ So:
   them are public by design; none grants anything on its own.
 - **Secrets go in the dashboard** (or `wrangler secret put`) and are never written
   to that file.
-- **`NEXT_PUBLIC_*` also go in the build variables**, because those are compiled
-  into the browser bundle — see below.
+- **Build variables are not needed at all** — see the next section.
 
-## The one thing that catches people
+## Build variables are not needed
 
-Cloudflare has **two** places called "Variables and secrets", and they do different
-jobs:
+Nothing has to be set in **Settings -> Build -> Variables**. Everything the app
+needs — the server and the browser both — comes from the Worker's runtime bindings.
 
-| Where | Reaches | Use for |
-|---|---|---|
-| Worker → Settings → **Build** → Variables and secrets | the build only | `NEXT_PUBLIC_*` |
-| Worker → Settings → **Runtime** (or `wrangler secret put`) | the running Worker | everything the server reads |
+That is deliberate. `NEXT_PUBLIC_*` values are compiled into the browser bundle
+when it is built, so a value present in the Worker at runtime is invisible to a
+bundle built without it, and nothing reports the mismatch: the server looks healthy
+while the browser cannot sign anyone in. The server reads the public config from
+its bindings and passes it through the page instead, so there is one place to
+configure and it is the place that survives a deploy.
 
-`NEXT_PUBLIC_*` values are **baked into the browser bundle when the bundle is built**.
-Setting them only at runtime leaves them empty in the shipped JavaScript, and the app
-fails with something unhelpful like "authentication is not configured". Setting them
-only at build time is fine for those, because nothing reads them at runtime.
-
-Everything else is the opposite: it is read by the server on each request, so it has
-to be a runtime value.
-
-**`NEXT_PUBLIC_DATA_LAYER` needs to be in both places.** The client reads the
-`NEXT_PUBLIC_` copy (inlined at build), the server reads `DATA_LAYER` (runtime). If
-they disagree, the browser and the server use different backends.
+The data layer follows the same principle: the app uses the real backend unless a
+build explicitly sets `NEXT_PUBLIC_DATA_LAYER=mock`. Mock data is a development
+scaffold, and defaulting to it meant a misconfigured deployment quietly served
+invented data rather than failing.
 
 ## First deploy
 
