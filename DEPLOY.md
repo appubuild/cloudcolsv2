@@ -3,6 +3,23 @@
 The app runs on Workers through OpenNext. `wrangler.jsonc` and `open-next.config.ts`
 are at the repository root, so no root-directory setting is needed.
 
+## Where variables actually live
+
+`wrangler deploy` **replaces** the Worker's plain variables with exactly the list in
+`wrangler.jsonc`. A variable added by hand in the dashboard and not written there is
+deleted by the next deploy, which looks like the dashboard quietly discarding what
+you typed. Secrets are managed separately and survive.
+
+So:
+
+- **Non-secret runtime values go in `wrangler.jsonc`** under `vars` — the Supabase
+  URL and publishable key, the B2 endpoint/region/bucket, the data layer. All of
+  them are public by design; none grants anything on its own.
+- **Secrets go in the dashboard** (or `wrangler secret put`) and are never written
+  to that file.
+- **`NEXT_PUBLIC_*` also go in the build variables**, because those are compiled
+  into the browser bundle — see below.
+
 ## The one thing that catches people
 
 Cloudflare has **two** places called "Variables and secrets", and they do different
@@ -82,23 +99,15 @@ they disagree, the browser and the server use different backends.
    node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))"
    ```
 
-   The server also needs the Supabase URL and anon key. Set them at runtime under
-   the **plain** names:
+   The server does not need the Supabase URL or anon key added here: both are
+   already declared in `wrangler.jsonc`, which is where they survive a deploy.
 
-   ```
-   SUPABASE_URL
-   SUPABASE_ANON_KEY
-   ```
-
-   Not the `NEXT_PUBLIC_` versions. Next replaces every `process.env.NEXT_PUBLIC_X`
-   in the source — server code included — with whatever was present at build time,
-   and the app then "will no longer respond to changes to these environment
-   variables". Adding a `NEXT_PUBLIC_` name as a runtime variable therefore does
-   nothing at all: the expression that would have read it no longer exists.
-
-   (The app reads the plain names as a fallback and also does a dynamic lookup that
-   Next cannot inline, so a `NEXT_PUBLIC_` runtime value is picked up too. The plain
-   names are still the ones to use — they behave the way the dashboard implies.)
+   Server code reads configuration from the Worker's own bindings rather than from
+   `process.env`, because Next replaces every `process.env.NEXT_PUBLIC_X` in the
+   source — server code included — with whatever was present at build time, after
+   which the app "will no longer respond to changes to these environment
+   variables". A `NEXT_PUBLIC_` value added at runtime would otherwise never be
+   read: the expression that would read it no longer exists.
 
    The non-secret runtime values (`DATA_LAYER`, `B2_REGION`, `B2_ENDPOINT`,
    `B2_BUCKET`) live in `wrangler.jsonc` under `vars`, where they are visible in
@@ -141,6 +150,14 @@ When something is missing at runtime the response names it:
 ```json
 {"missingAtRuntime": ["SUPABASE_SERVICE_ROLE_KEY"], "warnings": ["..."]}
 ```
+
+`sources` says, per variable, whether the value came from a Worker binding, from
+`process.env`, or is missing. A name the dashboard clearly shows but that reads
+`missing` here means the name the code reads is spelled differently — or that the
+variable was added by hand and the next deploy removed it.
+
+`build` says which build answered, so a fix that has not finished deploying is
+never mistaken for a fix that did not work.
 
 For a full check against real services, with the app running:
 

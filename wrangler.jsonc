@@ -33,6 +33,22 @@
     // browser is handed, and neither grants anything without the key pair.
     "B2_ENDPOINT": "s3.us-east-005.backblazeb2.com",
     "B2_REGION": "us-east-005",
-    "B2_BUCKET": "cloudcols-prod"
+    "B2_BUCKET": "cloudcols-prod",
+
+    // The Supabase project URL and its publishable key. Both are public by
+    // design: the key is built to ship inside browser bundles, and the URL is in
+    // every request the browser makes. Neither reads or writes anything on its
+    // own — row-level security decides that, and the service-role key that can
+    // bypass it is a secret and stays one.
+    //
+    // They belong here rather than in the dashboard because `wrangler deploy`
+    // replaces the Worker's plain variables with exactly this list. A variable
+    // added by hand and not written here is deleted by the next deploy, which
+    // looks like the dashboard silently discarding what you typed.
+    "SUPABASE_URL": "https://rgseinywqunxjkvkyxii.supabase.co",
+    "NEXT_PUBLIC_SUPABASE_URL": "https://rgseinywqunxjkvkyxii.supabase.co",
+    "SUPABASE_ANON_KEY": "sb_publishable_fxCQoQS21zWhHk2VlILFfQ_EZ2Y2-pz",
+    "NEXT_PUBLIC_SUPABASE_ANON_KEY": "sb_publishable_fxCQoQS21zWhHk2VlILFfQ_EZ2Y2-pz",
+    "NEXT_PUBLIC_APP_URL": "https://cloudcols.com"
   }
 }
