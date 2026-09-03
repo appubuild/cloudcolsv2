@@ -20,6 +20,21 @@ export async function GET() {
   const supabaseConfigured = Boolean(env.supabaseUrl && env.supabaseServiceRoleKey);
   const b2Configured = Boolean(env.b2.endpoint && env.b2.bucket && env.b2.accessKeyId && env.b2.secretAccessKey);
 
+  // Name what is actually missing. "supabase: false" sends someone back to a
+  // dashboard with ten variables in it and no way to tell which one is wrong.
+  const missing = (
+    [
+      ["NEXT_PUBLIC_SUPABASE_URL (or SUPABASE_URL)", env.supabaseUrl],
+      ["SUPABASE_SERVICE_ROLE_KEY", env.supabaseServiceRoleKey],
+      ["B2_ENDPOINT", env.b2.endpoint],
+      ["B2_BUCKET", env.b2.bucket],
+      ["B2_ACCESS_KEY_ID", env.b2.accessKeyId],
+      ["B2_SECRET_ACCESS_KEY", env.b2.secretAccessKey],
+    ] as const
+  )
+    .filter(([, value]) => !value)
+    .map(([name]) => name);
+
   const warnings: string[] = [];
   if (effectiveClient !== effectiveServer) {
     warnings.push(
@@ -46,6 +61,7 @@ export async function GET() {
     service: "cloudcols-api",
     dataLayer: { client: effectiveClient, server: effectiveServer },
     providers: { supabase: supabaseConfigured, b2: b2Configured },
+    ...(missing.length ? { missingAtRuntime: missing } : {}),
     ...(warnings.length ? { warnings } : {}),
     time: new Date().toISOString(),
   });
