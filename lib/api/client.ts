@@ -5,12 +5,23 @@
 // validates it and derives the user id server-side (never trusted from client).
 
 import { createClient } from "@supabase/supabase-js";
-import { env } from "@/lib/config/env";
+import { publicConfig } from "@/lib/config/public-config";
 
 let supabase: ReturnType<typeof createClient> | null = null;
+
+/**
+ * The browser's Supabase client, used for sign-in and for the session token that
+ * every API call carries.
+ *
+ * Configuration comes from publicConfig(), which the server fills in from the
+ * Worker's bindings. Reading NEXT_PUBLIC_* here instead meant sign-in failed with
+ * "Supabase not configured on this deployment" on a deployment where the values
+ * were plainly set — they were simply not present when the bundle was built.
+ */
 export function auth() {
-  if (!env.supabaseUrl || !env.supabaseAnonKey) return null;
-  if (!supabase) supabase = createClient(env.supabaseUrl, env.supabaseAnonKey);
+  const { supabaseUrl, supabaseAnonKey } = publicConfig();
+  if (!supabaseUrl || !supabaseAnonKey) return null;
+  if (!supabase) supabase = createClient(supabaseUrl, supabaseAnonKey);
   return supabase;
 }
 

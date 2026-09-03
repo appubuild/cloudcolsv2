@@ -7,6 +7,7 @@
 import "server-only";
 import { createHmac, timingSafeEqual } from "crypto";
 import { createAdminClient } from "@/lib/supabase/server";
+import { serverEnv } from "@/lib/config/server-env";
 import { ApiError } from "./auth";
 
 export type AdminRole = "super_admin" | "support" | "operator";
@@ -119,8 +120,9 @@ export async function authenticateAdmin(email: string, password: string): Promis
 
 /** Verify a password against Supabase Auth's token endpoint. */
 async function verifyPassword(email: string, password: string): Promise<boolean> {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  // From the Worker's bindings; see change-password for why not process.env.
+  const url = serverEnv.supabaseUrl;
+  const anon = serverEnv.supabaseAnonKey;
   if (!url || !anon) return false;
   const res = await fetch(`${url}/auth/v1/token?grant_type=password`, {
     method: "POST",

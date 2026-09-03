@@ -68,6 +68,21 @@ const password = `Pw-${crypto.randomUUID()}`;
 let userId = '';
 
 try {
+  /* ------------------------------------------------- what the browser receives */
+  // Sign-in runs in the browser against Supabase directly, using configuration the
+  // server puts into the page. Every other check here talks to Supabase with
+  // credentials read from a file, so all of them passed while the real sign-in form
+  // said "Supabase not configured on this deployment".
+  //
+  // This takes the values out of the served HTML — exactly what the browser gets —
+  // and signs in with them.
+  const loginHtml = await (await fetch(`${BASE}/login`)).text();
+  const pageUrl = loginHtml.match(/https:\/\/[a-z0-9]+\.supabase\.co/)?.[0] ?? "";
+  const pageKey = loginHtml.match(/(sb_publishable_[A-Za-z0-9_-]+|eyJ[A-Za-z0-9_.-]{40,})/)?.[0] ?? "";
+  check(Boolean(pageUrl), "the login page carries a Supabase URL for the browser", pageUrl || "none");
+  check(Boolean(pageKey), "the login page carries a publishable key for the browser");
+  check(!loginHtml.includes("demo@cloudcols.com"), "no demo credentials offered on a real deployment");
+
   /* ---------------------------------------------------------------- account */
   const created = await fetch(`${SUPA}/auth/v1/admin/users`, {
     method: 'POST',
@@ -78,14 +93,16 @@ try {
   userId = user.id ?? '';
   check(created.ok && userId, 'create account', email);
 
-  const signIn = await fetch(`${SUPA}/auth/v1/token?grant_type=password`, {
+  // Deliberately using the values the page handed the browser, so a deployment
+  // that serves the wrong ones fails here rather than looking healthy.
+  const signIn = await fetch(`${pageUrl || SUPA}/auth/v1/token?grant_type=password`, {
     method: 'POST',
-    headers: { apikey: ANON, 'content-type': 'application/json' },
+    headers: { apikey: pageKey || ANON, 'content-type': 'application/json' },
     body: JSON.stringify({ email, password }),
   });
   const session = await signIn.json();
   const token = session.access_token;
-  check(Boolean(token), 'sign in and receive a session');
+  check(Boolean(token), 'sign in with the config the browser was given', session.error_description ?? '');
 
   const me = await api('/api/auth/me', { token });
   check(me.status === 200, 'GET /api/auth/me', `HTTP ${me.status}`);

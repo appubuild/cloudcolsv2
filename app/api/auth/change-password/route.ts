@@ -1,5 +1,6 @@
 import { handler, requireUser, ApiError, limited, DEFAULT_LIMITS } from "@/lib/api/auth";
 import { createAdminClient } from "@/lib/supabase/server";
+import { serverEnv } from "@/lib/config/server-env";
 import { audit } from "@/lib/api/audit";
 
 export const dynamic = "force-dynamic";
@@ -12,8 +13,11 @@ export const POST = limited(async (req: Request) => {
   if (String(body.newPassword ?? "").length < 8) throw new ApiError("INVALID_INPUT", 400, "New password must be at least 8 characters.");
 
   // Verify the current password against Supabase Auth before changing.
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  // From the Worker's bindings, not process.env: Next compiles NEXT_PUBLIC_*
+  // references into whatever was present at build time, so a runtime value is
+  // never seen.
+  const url = serverEnv.supabaseUrl;
+  const anon = serverEnv.supabaseAnonKey;
   if (!url || !anon) throw new ApiError("CONFIG", 503, "Authentication is not configured.");
   const verify = await fetch(`${url}/auth/v1/token?grant_type=password`, {
     method: "POST",

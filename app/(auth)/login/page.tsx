@@ -6,7 +6,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input, Label } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { authRepo } from "@/lib/repositories";
+import { authRepo, useApi } from "@/lib/repositories";
 import { toast } from "@/lib/store/toast";
 import { useAuthStore } from "@/lib/store/auth";
 import { useQueryClient } from "@tanstack/react-query";
@@ -62,10 +62,15 @@ function LoginInner() {
           {error && <p className="rounded-md bg-error/10 px-3 py-2 text-sm text-error">{error}</p>}
           <Button type="submit" className="w-full" loading={loading}>Sign in</Button>
         </form>
-        <div className="mt-4 rounded-md bg-surface-2 p-3 text-xs text-muted-foreground">
-          <p className="font-medium text-foreground">Demo account</p>
-          <p>Email: <code className="text-primary">demo@cloudcols.com</code> · Password: <code className="text-primary">demo1234</code></p>
-        </div>
+        {/* Only meaningful against mock data — that account exists nowhere else.
+            Shown on a real deployment it is an invitation to try credentials that
+            cannot work, on a sign-in form that is otherwise real. */}
+        {!useApi && (
+          <div className="mt-4 rounded-md bg-surface-2 p-3 text-xs text-muted-foreground">
+            <p className="font-medium text-foreground">Demo account</p>
+            <p>Email: <code className="text-primary">demo@cloudcols.com</code> · Password: <code className="text-primary">demo1234</code></p>
+          </div>
+        )}
         <p className="mt-4 text-center text-sm text-muted-foreground">
           New to CloudCols? <Link href="/register" className="font-medium text-primary hover:underline">Create an account</Link>
         </p>
