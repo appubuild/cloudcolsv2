@@ -89,6 +89,8 @@ export function FileManager({
   const [deleteTargets, setDeleteTargets] = useState<string[]>([]);
   const [shareTarget, setShareTarget] = useState<FileListItem | null>(null);
   const [iconTarget, setIconTarget] = useState<FolderType | null>(null);
+  const [bulkRenameOpen, setBulkRenameOpen] = useState(false);
+  const [bulkRenamePattern, setBulkRenamePattern] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [dragOver, setDragOver] = useState(false);
 
@@ -500,6 +502,38 @@ export function FileManager({
               </Button>
             </>
           )}
+          {!isTrashView && selectedCount === 1 && (
+            <>
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => {
+                  const item = effectiveItems.find((i) => selected.has(i.id));
+                  if (item) itemHandlers.onShare(item);
+                }}
+              >
+                <Share2 className="h-4 w-4" /> Share
+              </Button>
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => {
+                  const item = effectiveItems.find((i) => selected.has(i.id));
+                  if (item) itemHandlers.onRename(item);
+                }}
+              >
+                <Pencil className="h-4 w-4" /> Rename
+              </Button>
+            </>
+          )}
+          {!isTrashView && selectedCount > 1 && (
+            // Renaming several at once means a pattern, not a name. Offering a
+            // single Rename box for many items would either overwrite them all
+            // with the same name or quietly do nothing.
+            <Button variant="secondary" size="sm" onClick={() => setBulkRenameOpen(true)}>
+              <Pencil className="h-4 w-4" /> Rename {selectedCount}
+            </Button>
+          )}
           <Button variant="secondary" size="sm" onClick={() => setMoveTargets(Array.from(selected))}>
             <Copy className="h-4 w-4" /> Move
           </Button>
@@ -570,6 +604,59 @@ export function FileManager({
               </button>
             );
           })}
+        </div>
+      </Dialog>
+
+      <Dialog
+        open={bulkRenameOpen}
+        onClose={() => setBulkRenameOpen(false)}
+        title={`Rename ${selectedCount} items`}
+        description="They are numbered in the order they appear."
+      >
+        <div className="space-y-3">
+          <div>
+            <Label htmlFor="bulk-rename">Name</Label>
+            <Input
+              id="bulk-rename"
+              autoFocus
+              placeholder="Holiday"
+              value={bulkRenamePattern}
+              onChange={(e) => setBulkRenamePattern(e.target.value)}
+              className="mt-1.5"
+            />
+            <p className="mt-1.5 text-xs text-muted-foreground">
+              Becomes {bulkRenamePattern || "Holiday"} 1, {bulkRenamePattern || "Holiday"} 2, and so on.
+              A file keeps its extension.
+            </p>
+          </div>
+          <div className="flex justify-end gap-2">
+            <Button variant="ghost" onClick={() => setBulkRenameOpen(false)}>Cancel</Button>
+            <Button
+              disabled={!bulkRenamePattern.trim()}
+              onClick={() => {
+                const chosen = effectiveItems.filter((i) => selected.has(i.id));
+                const base = bulkRenamePattern.trim();
+                chosen.forEach((item, index) => {
+                  if ("parentId" in item) {
+                    renameFolder.mutate({ folderId: item.id, name: `${base} ${index + 1}` });
+                  } else {
+                    // Keep the extension: renaming photo.png to "Holiday 1" would
+                    // leave a file the browser no longer knows how to open.
+                    const current = (item as File).originalFilename;
+                    const dot = current.lastIndexOf(".");
+                    const ext = dot > 0 ? current.slice(dot) : "";
+                    rename.mutate({ fileId: item.id, name: `${base} ${index + 1}${ext}` });
+                  }
+                });
+                toast.success(`Renaming ${chosen.length} items`, base);
+                setBulkRenameOpen(false);
+                setBulkRenamePattern("");
+                clearSelection();
+              }}
+            >
+              Rename
+            </Button>
+          </div>
         </div>
       </Dialog>
 

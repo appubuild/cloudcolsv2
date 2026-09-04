@@ -258,7 +258,12 @@ class ApiSubscriptionRepository implements SubscriptionRepository {
   async listForUser(userId: string) { return apiClient.get<Subscription[]>("/api/subscriptions"); }
   async currentForUser(userId: string) { return apiClient.get<Subscription | null>("/api/subscriptions/current"); }
   async checkout(userId: string, planId: string, provider: string) {
-    return apiClient.post<{ subscription: Subscription; payment: Payment }>("/api/subscriptions/checkout", { planId, provider });
+    // A paid plan answers with somewhere to pay, or refuses. It never returns a
+    // subscription, because nothing is granted until a provider confirms payment.
+    return apiClient.post<{ status: "applied"; planId: string; checkoutUrl: string | null }>(
+      "/api/subscriptions/checkout",
+      { planId, provider },
+    );
   }
   async cancel(userId: string) { return apiClient.post<Subscription>("/api/subscriptions/cancel"); }
 }

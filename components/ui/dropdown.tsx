@@ -46,6 +46,10 @@ export function Dropdown({
       <div onClick={() => setOpen(!isOpen)}>{trigger}</div>
       {isOpen && (
         <div
+          // Choosing an action closes the menu. The outside-click listener only
+          // fires for clicks elsewhere, so without this the menu stayed open over
+          // whatever the action just did.
+          onClick={() => setOpen(false)}
           className={cn(
             "absolute z-40 mt-2 min-w-48 max-h-[70vh] overflow-auto rounded-lg border border-border bg-surface p-1.5 shadow-elevated animate-fade-in",
             align === "right" ? "right-0" : "left-0",

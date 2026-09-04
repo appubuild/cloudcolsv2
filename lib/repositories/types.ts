@@ -120,7 +120,16 @@ export interface ShareRepository {
 export interface SubscriptionRepository {
   listForUser(userId: string): Promise<Subscription[]>;
   currentForUser(userId: string): Promise<Subscription | null>;
-  checkout(userId: string, planId: string, provider: string): Promise<{ subscription: Subscription; payment: Payment }>;
+  /**
+   * Starts a plan change. A paid plan answers with somewhere to pay, or refuses;
+   * it never returns a subscription, because nothing is granted until a provider
+   * confirms the payment.
+   */
+  checkout(
+    userId: string,
+    planId: string,
+    provider: string,
+  ): Promise<{ status: "applied"; planId: string; checkoutUrl: string | null }>;
   cancel(userId: string): Promise<Subscription>;
 }
 

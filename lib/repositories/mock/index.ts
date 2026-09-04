@@ -726,7 +726,9 @@ class MockSubscriptionRepository implements SubscriptionRepository {
     db.subscriptions.push(sub);
     db.payments.push(payment);
     saveDb();
-    return { subscription: sub, payment };
+    // Mock mode has no payment provider, so it applies the plan outright. That is
+    // fine here and wrong in the real repository, where a plan is worth money.
+    return { status: "applied" as const, planId, checkoutUrl: null };
   }
   async cancel(userId: string) {
     await delay();

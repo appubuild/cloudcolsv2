@@ -215,7 +215,16 @@ function BillingTab() {
               {formatBytes(me?.storageQuotaBytes ?? 0)} storage · Renews {sub?.renewsAt ? formatDateTime(sub.renewsAt) : "—"}
             </p>
           </div>
-          <Button variant="secondary" onClick={() => checkout.mutate({ planId: me?.planId === "plan_free" ? "plan_plus" : "plan_pro", provider: "card" }, { onSuccess: () => toast.success("Plan updated") })}>
+          <Button variant="secondary" onClick={() => checkout.mutate(
+              { planId: me?.planId === "plan_free" ? "plan_plus" : "plan_pro", provider: "stripe" },
+              {
+                onSuccess: (r: { checkoutUrl: string | null }) => {
+                  if (r.checkoutUrl) window.location.href = r.checkoutUrl;
+                  else toast.success("Plan updated");
+                },
+                onError: (e) => toast.error("Could not change plan", (e as Error).message),
+              },
+            )}>
             {plan?.id === "plan_free" ? "Upgrade" : "Change plan"}
           </Button>
         </CardContent>
@@ -247,7 +256,16 @@ function BillingTab() {
                     ))}
                   </ul>
                   {!active && (
-                    <Button variant="secondary" className="mt-4" onClick={() => checkout.mutate({ planId: p.id, provider: "card" }, { onSuccess: () => toast.success(`Switched to ${p.name}`) })}>
+                    <Button variant="secondary" className="mt-4" onClick={() => checkout.mutate(
+                        { planId: p.id, provider: "stripe" },
+                        {
+                          onSuccess: (r: { checkoutUrl: string | null }) => {
+                            if (r.checkoutUrl) window.location.href = r.checkoutUrl;
+                            else toast.success(`Switched to ${p.name}`);
+                          },
+                          onError: (e) => toast.error("Could not change plan", (e as Error).message),
+                        },
+                      )}>
                       Switch to {p.name}
                     </Button>
                   )}

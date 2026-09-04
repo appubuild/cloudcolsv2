@@ -59,7 +59,9 @@ export function ItemMenu({
     <Dropdown
       trigger={
         <button
-          onClick={(e) => e.stopPropagation()}
+          // No stopPropagation here. Dropdown opens from a wrapper around this
+          // trigger, so stopping the click stopped the menu from ever opening.
+          // The card is protected by a wrapper further out, in file-card.
           aria-label="More actions"
           className="rounded-md p-1.5 text-muted-foreground opacity-0 transition hover:bg-surface-2 hover:text-foreground focus:opacity-100 group-hover:opacity-100 data-[open=true]:opacity-100"
         >

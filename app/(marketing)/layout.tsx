@@ -3,6 +3,7 @@ import Link from "next/link";
 import { Logo } from "@/components/brand/logo";
 import { Toaster } from "@/components/ui/toaster";
 import { Button } from "@/components/ui/button";
+import { AccountNav } from "@/components/layout/account-nav";
 
 export default function MarketingLayout({ children }: { children: ReactNode }) {
   return (
@@ -17,8 +18,7 @@ export default function MarketingLayout({ children }: { children: ReactNode }) {
             <Link href="/developers" className="hover:text-foreground">Developers</Link>
           </nav>
           <div className="flex items-center gap-2">
-            <Link href="/login"><Button variant="ghost">Sign in</Button></Link>
-            <Link href="/register"><Button>Get started</Button></Link>
+            <AccountNav />
           </div>
         </div>
       </header>
