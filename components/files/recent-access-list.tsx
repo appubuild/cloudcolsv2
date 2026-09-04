@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { Folder as FolderIcon, Star, Clock } from "lucide-react";
-import { CategoryThumb } from "./category-thumb";
+import { FileThumb } from "./file-thumb";
 import { Skeleton } from "@/components/ui/misc";
 import { Card } from "@/components/ui/card";
 import { formatBytes, formatRelative } from "@/lib/utils";
@@ -43,7 +43,7 @@ export function RecentAccessList({
               return (
                 <div key={item.id} className="group flex items-center gap-3 py-2.5">
                   {file ? (
-                    <CategoryThumb category={item.category} className="h-9 w-9" />
+                    <FileThumb fileId={item.id} category={item.category} alt={item.originalFilename} className="h-9 w-9" />
                   ) : (
                     <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-indigo-500/10 text-indigo-500">
                       <FolderIcon className="h-5 w-5" />

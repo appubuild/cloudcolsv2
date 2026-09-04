@@ -25,10 +25,12 @@ import {
 import type { File, FileCategory, FileListParams, FileListItem, Folder as FolderType } from "@/lib/types";
 import { useFiles, useTrash, useFolders, useMutateFiles, useShare } from "@/lib/hooks/queries";
 import { useUiStore } from "@/lib/store/ui";
+import { useTitleOverride } from "@/lib/page-title";
 import { toast } from "@/lib/store/toast";
 import { enqueueUploads } from "@/lib/services/uploadService";
 import { filesRepo } from "@/lib/repositories";
 import { FileCard } from "./file-card";
+import { ItemMenu } from "./item-menu";
 import { Breadcrumb } from "./breadcrumb";
 import { EmptyState } from "./empty-state";
 import { useDebouncedValue } from "@/lib/hooks/useDebouncedValue";
@@ -67,7 +69,7 @@ export function FileManager({
 }) {
   const router = useRouter();
   const { viewMode, setViewMode } = useUiStore();
-  const { invalidate, createFolder, rename, renameFolder, moveToFolder, toggleFavorite, trash, restore, destroy } = useMutateFiles();
+  const { invalidate, createFolder, rename, renameFolder, moveToFolder, toggleFavorite, toggleFolderFavorite, trash, restore, destroy } = useMutateFiles();
   const { data: trashData } = useTrash();
 
   const [sort, setSort] = useState<SortKey>("name");
@@ -132,6 +134,14 @@ export function FileManager({
     });
     return segs;
   }, [mode, category, folderPath, search, allFolders]);
+
+  // The route only knows "My Files"; the folder's name lives here.
+  const setTitleOverride = useTitleOverride((st) => st.setOverride);
+  useEffect(() => {
+    if (mode === "browse" && crumbs.length > 1) setTitleOverride(crumbs[crumbs.length - 1]!.label);
+    else if (mode === "search" && search) setTitleOverride(`Search: ${search}`);
+    else setTitleOverride(null);
+  }, [mode, crumbs, search, setTitleOverride]);
 
   const items = useMemo(() => (data?.items ?? []) as FileListItem[], [data]);
   const isTrashView = mode === "trash";
@@ -214,6 +224,32 @@ export function FileManager({
     clearSelection();
   };
   const categoryOf = (item: FileListItem) => (isFolderItem(item) ? null : (item as File).category);
+
+  /**
+   * The actions behind each item's three-dot menu.
+   *
+   * Folders and files have separate favourite endpoints — folders were never
+   * wired to theirs, so favouriting one did nothing at all.
+   */
+  const itemHandlers = {
+    onOpen: (item: FileListItem) => openItem(item),
+    onRename: (item: FileListItem) => {
+      setRenameTarget(item);
+      setRenameValue("parentId" in item ? (item as FolderType).name : (item as File).originalFilename);
+    },
+    onMove: (item: FileListItem) => setMoveTargets([item.id]),
+    onShare: (item: FileListItem) => setShareTarget(item),
+    onToggleFavorite: (item: FileListItem) => {
+      if ("parentId" in item) toggleFolderFavorite.mutate(item.id);
+      else toggleFavorite.mutate(item.id);
+    },
+    onDelete: (item: FileListItem) => setDeleteTargets([item.id]),
+    onRestore: (item: FileListItem) => restore.mutate([item.id]),
+  };
+
+  const menuFor = (item: FileListItem) => (
+    <ItemMenu item={item} isTrash={isTrashView} handlers={itemHandlers} />
+  );
 
   const openItem = (item: FileListItem) => {
     if ("parentId" in item) {
@@ -326,6 +362,7 @@ export function FileManager({
               onSelect={selectMany}
               onOpen={openItem}
               onContext={() => {}}
+              menu={menuFor(item)}
             />
           ))}
         </div>
@@ -341,6 +378,7 @@ export function FileManager({
               onSelect={selectMany}
               onOpen={openItem}
               onContext={() => {}}
+              menu={menuFor(item)}
             />
           ))}
         </div>
@@ -356,6 +394,7 @@ export function FileManager({
             onSelect={selectMany}
             onOpen={openItem}
             onContext={() => {}}
+            menu={menuFor(item)}
           />
         ))}
       </div>

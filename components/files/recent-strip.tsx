@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useFiles } from "@/lib/hooks/queries";
-import { CategoryThumb } from "./category-thumb";
+import { FileThumb } from "./file-thumb";
 import { Skeleton } from "@/components/ui/misc";
 import { Card } from "@/components/ui/card";
 import { formatBytes, formatDate } from "@/lib/utils";
@@ -33,7 +33,7 @@ export function RecentFilesStrip() {
               if (!("sizeBytes" in item)) return null;
               return (
                 <div key={item.id} className="flex items-center gap-3 py-2.5">
-                  <CategoryThumb category={file.category} className="h-9 w-9" />
+                  <FileThumb fileId={file.id} category={file.category} alt={file.originalFilename} className="h-9 w-9" />
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-sm font-medium text-foreground">{file.originalFilename}</p>
                     <p className="text-xs text-muted-foreground">{formatBytes(file.sizeBytes)} · {formatDate(file.lastAccessedAt)}</p>

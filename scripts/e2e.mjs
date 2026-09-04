@@ -143,12 +143,27 @@ try {
 
   /* --------------------------------------------------------------- download */
   const dl = await api(`/api/files/download?fileId=${file.id}`, { token });
-  const url = dl.json?.data?.url ?? dl.json?.data?.presignedUrl ?? dl.json?.data?.downloadUrl;
+  const url = dl.json?.data?.presignedUrl ?? dl.json?.data?.url;
   check(dl.status === 200 && Boolean(url), 'download URL issued', `HTTP ${dl.status}`);
   if (url) {
     const bytes = await fetch(url);
     const body = await bytes.arrayBuffer();
     check(bytes.status === 200 && body.byteLength === content.length, 'bytes come back from storage', `${body.byteLength} bytes`);
+  }
+
+  // Clicking Download used to show a toast and nothing else. What makes the
+  // browser save rather than navigate is Content-Disposition, and what makes it
+  // save under a recognisable name is the filename inside it — both signed into
+  // the URL by the server so the holder cannot change them.
+  const att = await api(`/api/files/download?fileId=${file.id}&disposition=attachment`, { token });
+  const attUrl = att.json?.data?.presignedUrl ?? '';
+  check(Boolean(attUrl), 'attachment URL issued', `HTTP ${att.status}`);
+  if (attUrl) {
+    const head = await fetch(attUrl);
+    const cd = head.headers.get('content-disposition') ?? '';
+    check(cd.startsWith('attachment'), 'storage is told to serve it as a download', cd.slice(0, 40));
+    check(cd.includes('e2e-report.txt'), 'and under the name the user gave the file');
+    check((await head.arrayBuffer()).byteLength === content.length, 'the download is the whole file');
   }
 
   /* ---------------------------------------------------- upload into a folder */

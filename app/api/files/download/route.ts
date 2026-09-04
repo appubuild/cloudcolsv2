@@ -12,11 +12,15 @@ export const GET = handler(async (req: Request) => {
   const url = new URL(req.url);
   const fileId = url.searchParams.get("fileId");
   if (!fileId) throw new ApiError("INVALID_INPUT", 400, "fileId is required.");
+  // "attachment" makes the browser save the file under its original name;
+  // "inline" lets a preview render it in place. Both are signed into the URL, so
+  // whoever holds it cannot change which one they get.
+  const disposition = url.searchParams.get("disposition") === "attachment" ? "attachment" : "inline";
 
   const admin = createAdminClient();
   const { data: file } = await admin
     .from("files")
-    .select("object_key, status, owner_id")
+    .select("object_key, status, owner_id, original_filename, mime_type")
     .eq("id", fileId)
     .eq("owner_id", user.id) // ownership enforced server-side
     .maybeSingle();
@@ -26,6 +30,11 @@ export const GET = handler(async (req: Request) => {
   // Record access so the file shows in Recent Access (fire-and-forget).
   await admin.from("files").update({ last_accessed_at: new Date().toISOString() }).eq("id", fileId).eq("owner_id", user.id);
 
-  const { presignedUrl, expiresIn } = await getPresignedDownloadUrl(String(file.object_key));
-  return { presignedUrl, expiresIn };
+  const { presignedUrl, expiresIn } = await getPresignedDownloadUrl(String(file.object_key), 600, {
+    // Without the filename the browser saves the storage key — a UUID with no
+    // recognisable name — which is what made downloads look like they had failed.
+    ...(disposition === "attachment" ? { downloadFilename: String(file.original_filename) } : {}),
+    ...(file.mime_type ? { contentType: String(file.mime_type) } : {}),
+  });
+  return { presignedUrl, expiresIn, filename: String(file.original_filename) };
 });

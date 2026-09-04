@@ -74,7 +74,11 @@ export interface FilesRepository {
    * UI had no way to reach a stored file, and the preview rendered a placeholder
    * with the filename drawn on it instead of the file.
    */
-  getDownloadUrl(userId: string, fileId: string): Promise<{ url: string; expiresIn: number }>;
+  getDownloadUrl(
+    userId: string,
+    fileId: string,
+    disposition?: "inline" | "attachment",
+  ): Promise<{ url: string; expiresIn: number; filename?: string }>;
 }
 
 export interface AuthRepository {

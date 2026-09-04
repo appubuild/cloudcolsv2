@@ -10,6 +10,7 @@ import { CategoryThumb } from "@/components/files/category-thumb";
 import { useFileUrl } from "@/lib/hooks/useFileUrl";
 import { formatBytes } from "@/lib/utils";
 import { toast } from "@/lib/store/toast";
+import { downloadFile, openFileInNewTab } from "@/lib/services/fileActions";
 
 export function PreviewPortal({ fileId, onClose }: { fileId: string | null; onClose: () => void }) {
   const me = useAuthStore((s) => s.user);
@@ -71,7 +72,7 @@ export function PreviewPortal({ fileId, onClose }: { fileId: string | null; onCl
         </div>
         <div className="flex items-center gap-1">
           <button
-            onClick={() => toast.info("Download started", file?.originalFilename)}
+            onClick={() => file && void downloadFile(file)}
             aria-label="Download"
             className="rounded-md p-2 text-white/70 hover:bg-white/10 hover:text-white"
           >
@@ -85,7 +86,7 @@ export function PreviewPortal({ fileId, onClose }: { fileId: string | null; onCl
             <Share2 className="h-5 w-5" />
           </button>
           <button
-            onClick={() => toast.info("External open", "Opening in a new tab is available in the full app.")}
+            onClick={() => file && void openFileInNewTab(file.id)}
             aria-label="Open externally"
             className="rounded-md p-2 text-white/70 hover:bg-white/10 hover:text-white"
           >

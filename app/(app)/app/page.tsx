@@ -9,6 +9,7 @@ import { Progress } from "@/components/ui/progress";
 import { Badge, Skeleton } from "@/components/ui/misc";
 import { Button } from "@/components/ui/button";
 import { StorageRing } from "@/components/files/storage-ring";
+import { CategoryUsageCards } from "@/components/files/category-usage-cards";
 import { RecentAccessList } from "@/components/files/recent-access-list";
 import { FolderCard } from "@/components/files/folder-card";
 import { Upload, CloudOff, ArrowRight, Files as FilesIcon, Star, Folder as FolderIcon, Clock } from "lucide-react";
@@ -81,6 +82,9 @@ export default function DashboardPage() {
           <StatCard icon={<Clock className="h-5 w-5" />} label="Recently used" value={(recentAccess?.length ?? 0).toString()} />
         </div>
       </div>
+
+      {/* What the storage is actually spent on. */}
+      <CategoryUsageCards />
 
       {/* Favorite folders */}
       <DashboardSection

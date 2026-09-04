@@ -22,6 +22,7 @@ export function FileCard({
   onSelect,
   onOpen,
   onContext,
+  menu,
   grid = true,
   variant = grid ? "grid" : "list",
 }: {
@@ -30,6 +31,8 @@ export function FileCard({
   onSelect: (id: string) => void;
   onOpen: (item: FileListItem) => void;
   onContext: (item: FileListItem, e: React.MouseEvent) => void;
+  /** The three-dot menu for this item, rendered by the caller that owns the actions. */
+  menu?: React.ReactNode;
   grid?: boolean;
   variant?: "grid" | "list" | "gallery";
 }) {
@@ -78,6 +81,18 @@ export function FileCard({
           </svg>
         )}
       </button>
+
+      {menu && (
+        <div
+          onClick={(e) => e.stopPropagation()}
+          className={cn(
+            "absolute z-10",
+            variant === "list" ? "right-1.5 top-1/2 -translate-y-1/2" : "right-1 top-1",
+          )}
+        >
+          {menu}
+        </div>
+      )}
 
       {variant === "gallery" ? (
         <div className="flex flex-col">
