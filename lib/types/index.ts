@@ -82,6 +82,23 @@ export interface File {
 export type FileListItem = File | Folder;
 
 // Query params accepted by the file listing (used identically by mock + real API).
+/** A file or folder shared with a named person, by email. */
+export interface ShareInvitation {
+  id: string;
+  fileId: string | null;
+  folderId: string | null;
+  invitedEmail: string;
+  permission: "viewer" | "editor";
+  status: "pending" | "accepted" | "declined" | "revoked";
+  message: string | null;
+  createdAt: string;
+  respondedAt: string | null;
+  itemName: string;
+  itemKind: "file" | "folder";
+  category: string | null;
+  sizeBytes: number | null;
+}
+
 export interface FileListParams {
   folderId?: string | null;
   category?: FileCategory | null;

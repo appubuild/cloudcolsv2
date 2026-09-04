@@ -12,6 +12,7 @@ import type {
   Folder,
   Paginated,
   Plan,
+  ShareInvitation,
   ShareLink,
   Subscription,
   UploadTicket,
@@ -231,6 +232,18 @@ class ApiPlanRepository implements PlanRepository {
 // ---------------------------------------------------------------------------
 class ApiShareRepository implements ShareRepository {
   async listByOwner(userId: string) { return apiClient.get<ShareLink[]>("/api/shares"); }
+  async invite(
+    userId: string,
+    opts: { fileId?: string | null; folderId?: string | null; email: string; permission?: "viewer" | "editor"; message?: string },
+  ): Promise<ShareInvitation> {
+    return apiClient.post<ShareInvitation>("/api/shares/invitations", opts);
+  }
+  async listInvitations(userId: string, direction: "incoming" | "outgoing"): Promise<ShareInvitation[]> {
+    return apiClient.get<ShareInvitation[]>(`/api/shares/invitations?direction=${direction}`);
+  }
+  async respondToInvitation(userId: string, id: string, action: "accept" | "decline" | "revoke"): Promise<void> {
+    await apiClient.patch(`/api/shares/invitations/${id}`, { action });
+  }
   async create(userId: string, opts: { fileId?: string; folderId?: string; permission: "view" | "download"; expiresAt?: string | null }) {
     return apiClient.post<ShareLink>("/api/shares", opts);
   }

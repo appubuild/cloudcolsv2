@@ -18,6 +18,7 @@ import type {
   Paginated,
   Payment,
   Plan,
+  ShareInvitation,
   ShareLink,
   Subscription,
   UploadTicket,
@@ -102,6 +103,14 @@ export interface PlanRepository {
 }
 
 export interface ShareRepository {
+  /** Invite someone by email. Never reveals whether that address has an account. */
+  invite(
+    userId: string,
+    opts: { fileId?: string | null; folderId?: string | null; email: string; permission?: "viewer" | "editor"; message?: string },
+  ): Promise<ShareInvitation>;
+  /** "incoming" is what was shared with me; "outgoing" is what I shared. */
+  listInvitations(userId: string, direction: "incoming" | "outgoing"): Promise<ShareInvitation[]>;
+  respondToInvitation(userId: string, id: string, action: "accept" | "decline" | "revoke"): Promise<void>;
   listByOwner(userId: string): Promise<ShareLink[]>;
   create(userId: string, opts: { fileId?: string; folderId?: string; permission: "view" | "download"; expiresAt?: string | null }): Promise<ShareLink>;
   revoke(userId: string, shareId: string): Promise<void>;

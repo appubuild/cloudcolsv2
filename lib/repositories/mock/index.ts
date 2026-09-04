@@ -603,6 +603,11 @@ class MockPlanRepository implements PlanRepository {
 // ---------------------------------------------------------------------------
 // Sharing
 // ---------------------------------------------------------------------------
+/**
+ * Invitations are not simulated. Mock mode has one account, so there is nobody to
+ * invite and nothing an invitation could mean; refusing is honest, and the UI
+ * shows the error rather than a flow that appears to work and stores nothing.
+ */
 class MockShareRepository implements ShareRepository {
   async listByOwner(userId: string) {
     await delay();
@@ -656,6 +661,21 @@ class MockShareRepository implements ShareRepository {
     share.accessCount += 1;
     saveDb();
     return { share, file: file!, folder: folder ?? null };
+  }
+
+  async invite(): Promise<never> {
+    await delay(120);
+    throw new CloudColsError("NOT_AVAILABLE", 400, "Inviting people needs the real backend.");
+  }
+
+  async listInvitations() {
+    await delay(80);
+    return [];
+  }
+
+  async respondToInvitation(): Promise<void> {
+    await delay(80);
+    throw new CloudColsError("NOT_AVAILABLE", 400, "Invitations need the real backend.");
   }
 }
 

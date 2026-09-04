@@ -313,19 +313,82 @@ try {
   const restored = await api(`/api/files/${file.id}/restore`, { token, method: 'POST' });
   check([200, 204].includes(restored.status), 'restore from trash', `HTTP ${restored.status}`);
 
+  /* --------------------------------------------- invitations to a named person */
+  // The second account is created here so it can be invited; it is reused by the
+  // permission checks below.
+  const inviteeEmail = `e2e_other_${Date.now()}@cloudcols.test`;
+  const inviteeRes = await fetch(`${SUPA}/auth/v1/admin/users`, {
+    method: "POST",
+    headers: { apikey: SERVICE, Authorization: `Bearer ${SERVICE}`, "content-type": "application/json" },
+    body: JSON.stringify({ email: inviteeEmail, password, email_confirm: true }),
+  });
+  const invitee = await inviteeRes.json();
+  const inviteeToken = (
+    await (
+      await fetch(`${SUPA}/auth/v1/token?grant_type=password`, {
+        method: "POST",
+        headers: { apikey: ANON, "content-type": "application/json" },
+        body: JSON.stringify({ email: inviteeEmail, password }),
+      })
+    ).json()
+  ).access_token;
+
+  const invited = await api("/api/shares/invitations", {
+    token,
+    method: "POST",
+    body: { fileId: file.id, email: inviteeEmail, permission: "viewer" },
+  });
+  check(invited.status === 200 && invited.json?.data?.id, "invite someone by email", `HTTP ${invited.status}`);
+  const invitationId = invited.json?.data?.id;
+
+  // An address with no account must look exactly like one that has an account,
+  // or the endpoint becomes a way to test which addresses are registered.
+  const strangerInvite = await api("/api/shares/invitations", {
+    token,
+    method: "POST",
+    body: { fileId: file.id, email: `nobody_${Date.now()}@example.invalid` },
+  });
+  check(strangerInvite.status === invited.status, "inviting an unknown address answers the same way", `HTTP ${strangerInvite.status}`);
+
+  const incoming = await api("/api/shares/invitations", { token: inviteeToken });
+  check(
+    (incoming.json?.data ?? []).some((i) => i.id === invitationId),
+    "the invitation reaches the recipient",
+  );
+
+  const notifs = await api("/api/notifications", { token: inviteeToken });
+  const notifList = notifs.json?.data?.items ?? notifs.json?.data ?? [];
+  check(Array.isArray(notifList) && notifList.length > 0, "and they are notified", `${notifList.length} notification(s)`);
+
+  // Before accepting, the file must stay out of reach.
+  const beforeAccept = await api(`/api/files/download?fileId=${file.id}`, { token: inviteeToken });
+  check(beforeAccept.status !== 200, "a pending invitation grants nothing", `HTTP ${beforeAccept.status}`);
+
+  const accepted = await api(`/api/shares/invitations/${invitationId}`, {
+    token: inviteeToken,
+    method: "PATCH",
+    body: { action: "accept" },
+  });
+  check(accepted.json?.data?.status === "accepted", "recipient accepts", `HTTP ${accepted.status}`);
+
+  // Only the owner may withdraw it.
+  const wrongRevoke = await api(`/api/shares/invitations/${invitationId}`, {
+    token: inviteeToken,
+    method: "PATCH",
+    body: { action: "revoke" },
+  });
+  check(wrongRevoke.status === 403, "a recipient cannot revoke their own access", `HTTP ${wrongRevoke.status}`);
+
+  const revoked = await api(`/api/shares/invitations/${invitationId}`, {
+    token,
+    method: "PATCH",
+    body: { action: "revoke" },
+  });
+  check(revoked.json?.data?.status === "revoked", "owner revokes access", `HTTP ${revoked.status}`);
+
   /* ------------------------------------------------------- permission check */
-  const other = await fetch(`${SUPA}/auth/v1/admin/users`, {
-    method: 'POST',
-    headers: { apikey: SERVICE, Authorization: `Bearer ${SERVICE}`, 'content-type': 'application/json' },
-    body: JSON.stringify({ email: `e2e_other_${Date.now()}@cloudcols.test`, password, email_confirm: true }),
-  });
-  const otherUser = await other.json();
-  const otherSignIn = await fetch(`${SUPA}/auth/v1/token?grant_type=password`, {
-    method: 'POST',
-    headers: { apikey: ANON, 'content-type': 'application/json' },
-    body: JSON.stringify({ email: otherUser.email, password }),
-  });
-  const otherToken = (await otherSignIn.json()).access_token;
+  const otherUser = invitee;
+  const otherToken = inviteeToken;
 
   const stolen = await api(`/api/files/download?fileId=${file.id}`, { token: otherToken });
   check(stolen.status !== 200, "another account cannot download someone else's file", `HTTP ${stolen.status}`);
