@@ -23,7 +23,7 @@ import {
   Folder,
 } from "lucide-react";
 import type { File, FileCategory, FileListParams, FileListItem, Folder as FolderType } from "@/lib/types";
-import { useFiles, useTrash, useFolders, useMutateFiles, useShare } from "@/lib/hooks/queries";
+import { useFiles, useTrash, useFolders, useMutateFiles, useShare, useInvite } from "@/lib/hooks/queries";
 import { useUiStore } from "@/lib/store/ui";
 import { useTitleOverride } from "@/lib/page-title";
 import { toast } from "@/lib/store/toast";
@@ -733,16 +733,95 @@ function MoveDialog({
 
 function ShareDialog({ item, onClose }: { item: FileListItem | null; onClose: () => void }) {
   const { create } = useShare();
+  const { invite } = useInvite();
+  const [mode, setMode] = useState<"link" | "people">("link");
   const [permission, setPermission] = useState<"view" | "download">("download");
   const [createdToken, setCreatedToken] = useState<string | null>(null);
+  const [email, setEmail] = useState("");
+  const [role, setRole] = useState<"viewer" | "editor">("viewer");
   const displayName = item ? ("name" in item ? (item as FolderType).name : (item as File).originalFilename) : "";
+  const isFolder = item ? "parentId" in item : false;
 
   return (
-    <Dialog open={!!item} onClose={onClose} title="Share" description={`Create a link to share "${displayName}"`}>
-      {createdToken ? (
+    <Dialog open={!!item} onClose={onClose} title="Share" description={displayName}>
+      <Tabs
+        tabs={[
+          { id: "link", label: "Anyone with the link" },
+          { id: "people", label: "Specific people" },
+        ]}
+        value={mode}
+        onChange={(v) => setMode(v as "link" | "people")}
+        className="mb-4"
+      />
+
+      {mode === "people" ? (
+        <div className="space-y-4">
+          <div>
+            <Label htmlFor="share-email">Email address</Label>
+            <Input
+              id="share-email"
+              type="email"
+              autoComplete="off"
+              placeholder="colleague@example.com"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              className="mt-1.5"
+            />
+            <p className="mt-1.5 text-xs text-muted-foreground">
+              They can be invited before they have a CloudCols account — the invitation
+              waits for them to sign up.
+            </p>
+          </div>
+
+          <div>
+            <Label>Permission</Label>
+            <Tabs
+              tabs={[
+                { id: "viewer", label: "Viewer" },
+                { id: "editor", label: "Editor" },
+              ]}
+              value={role}
+              onChange={(v) => setRole(v as "viewer" | "editor")}
+              className="mt-2"
+            />
+          </div>
+
+          <div className="flex justify-end gap-2">
+            <Button variant="ghost" onClick={onClose}>Cancel</Button>
+            <Button
+              disabled={!email.includes("@")}
+              loading={invite.isPending}
+              onClick={() => {
+                if (!item) return;
+                invite.mutate(
+                  {
+                    fileId: isFolder ? undefined : item.id,
+                    folderId: isFolder ? item.id : undefined,
+                    email: email.trim(),
+                    permission: role,
+                  },
+                  {
+                    onSuccess: () => {
+                      // Deliberately the same message whether or not that address
+                      // has an account: saying which would let anyone test
+                      // addresses against the user list.
+                      toast.success("Invitation sent", email.trim());
+                      setEmail("");
+                      onClose();
+                    },
+                    onError: (e) => toast.error("Could not send the invitation", (e as Error).message),
+                  },
+                );
+              }}
+            >
+              Send invitation
+            </Button>
+          </div>
+        </div>
+      ) : createdToken ? (
         <div className="space-y-3">
           <p className="text-sm text-muted-foreground">
-            Your link is ready. Anyone with the link can access this{item && "file"} {permission === "download" ? "and download it" : "(view only)"}.
+            Anyone with this link can open it{permission === "download" ? " and download it" : " (view only)"}.
           </p>
           <div className="flex items-center gap-2 rounded-md border border-border bg-surface-2 p-2">
             <code className="flex-1 truncate text-xs">{`${typeof window !== "undefined" ? window.location.origin : ""}/s/${createdToken}`}</code>
@@ -768,7 +847,7 @@ function ShareDialog({ item, onClose }: { item: FileListItem | null; onClose: ()
               className="mt-2"
             />
           </div>
-          <p className="text-xs text-muted-foreground">Share links are secure and can be revoked anytime from the Shared section.</p>
+          <p className="text-xs text-muted-foreground">A link can be revoked at any time from the Shared section.</p>
           <div className="flex justify-end gap-2">
             <Button variant="ghost" onClick={onClose}>Cancel</Button>
             <Button
@@ -776,8 +855,8 @@ function ShareDialog({ item, onClose }: { item: FileListItem | null; onClose: ()
                 if (!item) return;
                 create.mutate(
                   {
-                    fileId: "parentId" in item ? undefined : item.id,
-                    folderId: "parentId" in item ? item.id : undefined,
+                    fileId: isFolder ? undefined : item.id,
+                    folderId: isFolder ? item.id : undefined,
                     permission,
                   },
                   {

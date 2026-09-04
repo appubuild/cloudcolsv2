@@ -142,6 +142,45 @@ export function useShared() {
   });
 }
 
+/** Invitations addressed to me, or ones I sent. */
+export function useInvitations(direction: "incoming" | "outgoing") {
+  const me = useMe();
+  const userId = me.data?.id ?? "";
+  return useQuery({
+    queryKey: ["invitations", direction],
+    queryFn: () => shareRepo.listInvitations(userId, direction),
+    enabled: !!userId,
+  });
+}
+
+export function useInvite() {
+  const qc = useQueryClient();
+  const refresh = () => {
+    qc.invalidateQueries({ queryKey: ["invitations"] });
+    qc.invalidateQueries({ queryKey: queryKeys.notifications });
+    // An accepted invitation changes what the recipient can see.
+    qc.invalidateQueries({ queryKey: ["files"] });
+    qc.invalidateQueries({ queryKey: ["folders"] });
+  };
+  return {
+    invite: useMutation({
+      mutationFn: (opts: {
+        fileId?: string | null;
+        folderId?: string | null;
+        email: string;
+        permission?: "viewer" | "editor";
+        message?: string;
+      }) => shareRepo.invite(useAuthStore.getState().user?.id!, opts),
+      onSuccess: refresh,
+    }),
+    respond: useMutation({
+      mutationFn: ({ id, action }: { id: string; action: "accept" | "decline" | "revoke" }) =>
+        shareRepo.respondToInvitation(useAuthStore.getState().user?.id!, id, action),
+      onSuccess: refresh,
+    }),
+  };
+}
+
 export function useSubscriptions() {
   const me = useMe();
   const userId = me.data?.id ?? "";
