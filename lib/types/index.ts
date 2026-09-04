@@ -53,6 +53,10 @@ export interface Folder {
   updatedAt: string;
   trashedAt: string | null;
   isFavorite: boolean;
+  /** Pinned folders sort above everything else in their parent. */
+  isPinned: boolean;
+  /** Icon key chosen by the owner; null is the default folder icon. */
+  icon: string | null;
   lastAccessedAt: string | null;
 }
 

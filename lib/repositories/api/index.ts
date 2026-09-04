@@ -198,6 +198,14 @@ class ApiFilesRepository implements FilesRepository {
   async toggleFolderFavorite(userId: string, folderId: string): Promise<Folder> {
     return apiClient.patch<Folder>(`/api/folders/${folderId}`, { toggleFavorite: true });
   }
+  async toggleFolderPin(userId: string, folderId: string): Promise<Folder> {
+    // Toggled server-side so the client does not have to hold current state and
+    // cannot get it wrong after a stale read.
+    return apiClient.patch<Folder>(`/api/folders/${folderId}`, { togglePin: true });
+  }
+  async setFolderIcon(userId: string, folderId: string, icon: string | null): Promise<Folder> {
+    return apiClient.patch<Folder>(`/api/folders/${folderId}`, { icon });
+  }
   async markAccessed(userId: string, type: "file" | "folder", id: string): Promise<void> {
     await apiClient.post("/api/recent", { type, id });
   }

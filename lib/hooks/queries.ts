@@ -245,6 +245,24 @@ export function useMutateFiles() {
         filesRepo.toggleFavorite(useAuthStore.getState().user?.id!, fileId),
       onSuccess: invalidate,
     }),
+    toggleFolderPin: useMutation({
+      mutationFn: (folderId: string) => filesRepo.toggleFolderPin(useAuthStore.getState().user?.id!, folderId),
+      onSuccess: () => {
+        qc.invalidateQueries({ queryKey: ["files"] });
+        qc.invalidateQueries({ queryKey: ["folders"] });
+        qc.invalidateQueries({ queryKey: ["recentFolders"] });
+      },
+    }),
+    setFolderIcon: useMutation({
+      mutationFn: ({ folderId, icon }: { folderId: string; icon: string | null }) =>
+        filesRepo.setFolderIcon(useAuthStore.getState().user?.id!, folderId, icon),
+      onSuccess: () => {
+        qc.invalidateQueries({ queryKey: ["files"] });
+        qc.invalidateQueries({ queryKey: ["folders"] });
+        qc.invalidateQueries({ queryKey: ["favoriteFolders"] });
+        qc.invalidateQueries({ queryKey: ["recentFolders"] });
+      },
+    }),
     toggleFolderFavorite: useMutation({
       mutationFn: (folderId: string) =>
         filesRepo.toggleFolderFavorite(useAuthStore.getState().user?.id!, folderId),

@@ -61,6 +61,10 @@ export interface FilesRepository {
   listRecentFolders(userId: string): Promise<Folder[]>;
   /** Toggle a folder's favorite state. */
   toggleFolderFavorite(userId: string, folderId: string): Promise<Folder>;
+  /** Pinned folders sort above everything else in their parent. */
+  toggleFolderPin(userId: string, folderId: string): Promise<Folder>;
+  /** An icon key, or null to go back to the default folder icon. */
+  setFolderIcon(userId: string, folderId: string, icon: string | null): Promise<Folder>;
   /** Mark a file or folder as accessed (updates last_accessed_at). */
   markAccessed(userId: string, type: "file" | "folder", id: string): Promise<void>;
   /** Combined recent-access feed (files + folders), newest first. */

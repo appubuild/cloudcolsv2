@@ -191,6 +191,8 @@ class MockFilesRepository implements FilesRepository {
       updatedAt: new Date().toISOString(),
       trashedAt: null,
       isFavorite: false,
+      isPinned: false,
+      icon: null,
       lastAccessedAt: null,
     };
     db.folders.push(folder);
@@ -380,6 +382,30 @@ class MockFilesRepository implements FilesRepository {
     const folder = db.folders.find((f) => f.id === folderId);
     if (!folder || folder.ownerId !== userId) throw new CloudColsError("FOLDER_NOT_FOUND", 404, "Folder not found.");
     folder.isFavorite = !folder.isFavorite;
+    folder.updatedAt = new Date().toISOString();
+    saveDb();
+    return folder;
+  }
+
+  async toggleFolderPin(userId: string, folderId: string) {
+    await delay(120);
+    const db = getDb();
+    requireUser(db, userId);
+    const folder = db.folders.find((f) => f.id === folderId);
+    if (!folder || folder.ownerId !== userId) throw new CloudColsError("FOLDER_NOT_FOUND", 404, "Folder not found.");
+    folder.isPinned = !folder.isPinned;
+    folder.updatedAt = new Date().toISOString();
+    saveDb();
+    return folder;
+  }
+
+  async setFolderIcon(userId: string, folderId: string, icon: string | null) {
+    await delay(120);
+    const db = getDb();
+    requireUser(db, userId);
+    const folder = db.folders.find((f) => f.id === folderId);
+    if (!folder || folder.ownerId !== userId) throw new CloudColsError("FOLDER_NOT_FOUND", 404, "Folder not found.");
+    folder.icon = icon;
     folder.updatedAt = new Date().toISOString();
     saveDb();
     return folder;

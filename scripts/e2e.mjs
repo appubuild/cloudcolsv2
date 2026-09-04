@@ -63,6 +63,16 @@ async function api(path, { token, method = 'GET', body } = {}) {
   return { status: res.status, json };
 }
 
+async function putWithRetry(url, body, attempts = 3) {
+  let last;
+  for (let i = 1; i <= attempts; i += 1) {
+    last = await fetch(url, { method: 'PUT', body });
+    if (last.status < 500) return last;
+    await new Promise((r) => setTimeout(r, 500 * i));
+  }
+  return last;
+}
+
 const email = `e2e_${Date.now()}@cloudcols.test`;
 const password = `Pw-${crypto.randomUUID()}`;
 let userId = '';
@@ -118,7 +128,9 @@ try {
   const t = ticket.json?.data;
   check(ticket.status === 200 && t?.presignedUrl, 'upload ticket', `HTTP ${ticket.status}`);
 
-  const put = await fetch(t.presignedUrl, { method: 'PUT', body: content });
+  // Retried the same way the app retries: storage returns the occasional 500 and
+  // a test that fails on it is reporting Backblaze's weather, not a defect.
+  const put = await putWithRetry(t.presignedUrl, content);
   check(put.status === 200, 'PUT straight to Backblaze', `HTTP ${put.status} · ${content.length} bytes`);
 
   const confirm = await api('/api/files/confirm', {
@@ -187,7 +199,7 @@ try {
     const itk = it.json?.data;
     check(it.status === 200 && itk?.presignedUrl, "upload ticket for a folder", `HTTP ${it.status}`);
 
-    await fetch(itk.presignedUrl, { method: "PUT", body: inner });
+    await putWithRetry(itk.presignedUrl, inner);
     const ic = await api("/api/files/confirm", {
       token,
       method: "POST",
@@ -202,6 +214,26 @@ try {
     const atRoot = await api("/api/files?folderId=null", { token });
     const rootIds = (atRoot.json?.data?.items ?? []).map((f) => f.id);
     check(!rootIds.includes(itk.fileId), "and not sitting at the root as well");
+  }
+
+  /* ------------------------------------------------------- pin and folder icon */
+  if (folder?.id) {
+    const pinned = await api(`/api/folders/${folder.id}`, { token, method: "PATCH", body: { togglePin: true } });
+    check(pinned.json?.data?.isPinned === true, "folder pins", `HTTP ${pinned.status}`);
+
+    const unpinned = await api(`/api/folders/${folder.id}`, { token, method: "PATCH", body: { togglePin: true } });
+    check(unpinned.json?.data?.isPinned === false, "and unpins again");
+
+    const iconed = await api(`/api/folders/${folder.id}`, { token, method: "PATCH", body: { icon: "work" } });
+    check(iconed.json?.data?.icon === "work", "folder icon is stored", String(iconed.json?.data?.icon));
+
+    // The set is closed on the server, so a request cannot store a key the UI
+    // would fail to render.
+    const bogus = await api(`/api/folders/${folder.id}`, { token, method: "PATCH", body: { icon: "../evil" } });
+    check(bogus.status === 400, "an unknown icon key is refused", `HTTP ${bogus.status}`);
+
+    const reset = await api(`/api/folders/${folder.id}`, { token, method: "PATCH", body: { icon: null } });
+    check(reset.json?.data?.icon === null, "and resets to the default");
   }
 
   /* --------------------------------------------------------- storage counted */
@@ -240,7 +272,7 @@ try {
       check(false, `PNG ticket ${label}`, `HTTP ${pt.status}`);
       continue;
     }
-    await fetch(pticket.presignedUrl, { method: "PUT", body: PNG });
+    await putWithRetry(pticket.presignedUrl, PNG);
     const pc = await api("/api/files/confirm", {
       token,
       method: "POST",

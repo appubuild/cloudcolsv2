@@ -130,6 +130,8 @@ export const seedFolders: Folder[] = [
     updatedAt: daysAgo(2),
     trashedAt: null,
     isFavorite: true,
+    isPinned: false,
+    icon: null,
     lastAccessedAt: hoursAgo(6),
   },
   {
@@ -142,6 +144,8 @@ export const seedFolders: Folder[] = [
     updatedAt: daysAgo(1),
     trashedAt: null,
     isFavorite: false,
+    isPinned: false,
+    icon: null,
     lastAccessedAt: hoursAgo(90),
   },
   {
@@ -154,6 +158,8 @@ export const seedFolders: Folder[] = [
     updatedAt: daysAgo(9),
     trashedAt: null,
     isFavorite: true,
+    isPinned: false,
+    icon: null,
     lastAccessedAt: hoursAgo(20),
   },
   {
@@ -166,6 +172,8 @@ export const seedFolders: Folder[] = [
     updatedAt: daysAgo(6),
     trashedAt: null,
     isFavorite: true,
+    isPinned: false,
+    icon: null,
     lastAccessedAt: hoursAgo(3),
   },
   {
@@ -178,6 +186,8 @@ export const seedFolders: Folder[] = [
     updatedAt: daysAgo(12),
     trashedAt: null,
     isFavorite: false,
+    isPinned: false,
+    icon: null,
     lastAccessedAt: hoursAgo(52),
   },
   {
@@ -190,6 +200,8 @@ export const seedFolders: Folder[] = [
     updatedAt: daysAgo(20),
     trashedAt: daysAgo(15),
     isFavorite: false,
+    isPinned: false,
+    icon: null,
     lastAccessedAt: hoursAgo(720),
   },
 ];

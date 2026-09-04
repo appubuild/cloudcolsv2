@@ -108,7 +108,44 @@ function isRealPresign(url: string): boolean {
   return /^https:\/\//.test(url) && !url.includes("sim.invalid");
 }
 
+/**
+ * How many times a failed PUT is worth retrying.
+ *
+ * Object storage returns the occasional 500 under load — observed repeatedly
+ * against Backblaze while testing, roughly one upload in ten. Without a retry
+ * that is simply a failed upload the user has to notice and redo, for a reason
+ * that has nothing to do with them.
+ *
+ * Only 5xx and network failures are retried. A 403 means the URL is wrong or
+ * expired and will be wrong again; retrying it just delays the error.
+ */
+const PUT_ATTEMPTS = 3;
+
 async function realPut(task: UploadTask, presignedUrl: string): Promise<void> {
+  let lastError: unknown;
+
+  for (let attempt = 1; attempt <= PUT_ATTEMPTS; attempt += 1) {
+    try {
+      await putOnce(task, presignedUrl);
+      return;
+    } catch (e) {
+      lastError = e;
+      const code = (e as { code?: string }).code;
+      const status = (e as { status?: number }).status ?? 0;
+      const worthRetrying = code === "NETWORK" || (code === "STORAGE_REJECTED" && status >= 500);
+      if (!worthRetrying || attempt === PUT_ATTEMPTS) break;
+
+      // Backing off rather than hammering: if storage is briefly unwell, arriving
+      // again immediately is unlikely to go better.
+      await new Promise((r) => setTimeout(r, 500 * attempt));
+      ship(task.id, 0, 0);
+    }
+  }
+
+  throw lastError;
+}
+
+async function putOnce(task: UploadTask, presignedUrl: string): Promise<void> {
   const file = task.file;
   if (!file) {
     // Nothing to send. Better to fail loudly than to report a success that left
@@ -142,6 +179,7 @@ async function realPut(task: UploadTask, presignedUrl: string): Promise<void> {
       reject(
         Object.assign(new Error(`Storage rejected the upload (HTTP ${xhr.status}).`), {
           code: "STORAGE_REJECTED",
+          status: xhr.status,
         }),
       );
     };

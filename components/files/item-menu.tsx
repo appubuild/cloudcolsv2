@@ -13,12 +13,16 @@ import {
   ExternalLink,
   Trash2,
   Clock,
+  Pin,
+  Palette,
 } from "lucide-react";
 import { Dropdown, DropdownItem } from "@/components/ui/dropdown";
 import type { FileListItem, File as CloudFile, Folder as CloudFolder } from "@/lib/types";
 import { downloadFile, openFileInNewTab, copyItemLink } from "@/lib/services/fileActions";
 
 export interface ItemMenuHandlers {
+  onTogglePin?: (item: FileListItem) => void;
+  onChangeIcon?: (item: FileListItem) => void;
   onOpen: (item: FileListItem) => void;
   onRename: (item: FileListItem) => void;
   onMove: (item: FileListItem) => void;
@@ -113,6 +117,21 @@ export function ItemMenu({
           >
             {favorite ? "Remove from favourites" : "Add to favourites"}
           </DropdownItem>
+
+          {isFolder && handlers.onTogglePin && (
+            <DropdownItem
+              icon={<Pin className="h-4 w-4" />}
+              onClick={() => handlers.onTogglePin!(item)}
+            >
+              {folder.isPinned ? "Unpin folder" : "Pin to the top"}
+            </DropdownItem>
+          )}
+
+          {isFolder && handlers.onChangeIcon && (
+            <DropdownItem icon={<Palette className="h-4 w-4" />} onClick={() => handlers.onChangeIcon!(item)}>
+              Change icon
+            </DropdownItem>
+          )}
 
           <DropdownItem icon={<FolderInput className="h-4 w-4" />} onClick={() => handlers.onMove(item)}>
             Move to…

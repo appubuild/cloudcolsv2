@@ -4,7 +4,8 @@ import type { File as FileType, FileListItem, Folder as FolderType, FileCategory
 import { cn } from "@/lib/utils";
 import { formatBytes, formatDate } from "@/lib/utils";
 import { FileThumb } from "./file-thumb";
-import { Folder as FolderIcon, Star } from "lucide-react";
+import { Star, Pin } from "lucide-react";
+import { FolderGlyph } from "./folder-icon";
 
 const catLabel: Record<FileCategory, string> = {
   image: "Image",
@@ -99,9 +100,7 @@ export function FileCard({
           {/* A tall preview so images are recognisable at a glance, which a 40px
               icon beside the name never is. */}
           {isFolder ? (
-            <span className="flex h-[104px] w-full items-center justify-center rounded-md bg-primary-soft text-primary">
-              <FolderIcon className="h-9 w-9" />
-            </span>
+            <FolderGlyph icon={folder.icon} className="h-[104px] w-full rounded-md" iconClassName="h-9 w-9" />
           ) : (
             <FileThumb
               fileId={file.id}
@@ -126,14 +125,15 @@ export function FileCard({
         <div className="flex flex-col">
           <div className="flex items-center gap-2.5">
             {isFolder ? (
-              <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-primary-soft text-primary">
-                <FolderIcon className="h-5 w-5" />
-              </span>
+              <FolderGlyph icon={folder.icon} />
             ) : (
               categoryMedia(file)
             )}
-            {file.isFavorite && (
-              <Star className="ml-auto ml-0 h-4 w-4 shrink-0 fill-amber-400 text-amber-400" />
+            {isFolder && folder.isPinned && (
+              <Pin className="ml-auto h-3.5 w-3.5 shrink-0 fill-primary text-primary" />
+            )}
+            {!isFolder && file.isFavorite && (
+              <Star className="ml-auto h-4 w-4 shrink-0 fill-amber-400 text-amber-400" />
             )}
           </div>
           <p className="mt-2.5 truncate text-sm font-medium text-foreground">{isFolder ? folder.name : file.originalFilename}</p>
@@ -146,9 +146,7 @@ export function FileCard({
         // List row
         <div className="flex items-center gap-3">
           {isFolder ? (
-            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-primary-soft text-primary">
-              <FolderIcon className="h-4 w-4" />
-            </span>
+            <FolderGlyph icon={folder.icon} className="h-8 w-8 rounded-md" iconClassName="h-4 w-4" />
           ) : (
             categoryMedia(file, 8)
           )}

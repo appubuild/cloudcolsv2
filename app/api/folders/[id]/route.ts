@@ -11,7 +11,24 @@ interface Body {
   parentId?: string | null;
   isFavorite?: boolean;
   toggleFavorite?: boolean;
+  isPinned?: boolean;
+  togglePin?: boolean;
+  /** An icon key, or null to go back to the default folder. */
+  icon?: string | null;
 }
+
+// The client owns what each key looks like; the server only accepts keys it knows,
+// so a request cannot store something the UI will fail to render.
+const ICON_KEYS = new Set([
+  "folder",
+  "work",
+  "personal",
+  "photos",
+  "videos",
+  "documents",
+  "important",
+  "projects",
+]);
 
 export const PATCH = handler(async (req: Request, ctx?: { params: Promise<Params> }) => {
   const user = await requireUser(req);
@@ -26,6 +43,20 @@ export const PATCH = handler(async (req: Request, ctx?: { params: Promise<Params
   if (body.toggleFavorite) {
     const { data: cur } = await admin.from("folders").select("is_favorite").eq("id", id).eq("owner_id", user.id).maybeSingle();
     updates.is_favorite = cur ? !Boolean(cur.is_favorite) : true;
+  }
+  if (typeof body.isPinned === "boolean") updates.is_pinned = body.isPinned;
+  if (body.togglePin) {
+    const { data: cur } = await admin.from("folders").select("is_pinned").eq("id", id).eq("owner_id", user.id).maybeSingle();
+    updates.is_pinned = cur ? !Boolean(cur.is_pinned) : true;
+  }
+  if ("icon" in body) {
+    if (body.icon === null || body.icon === "folder") {
+      updates.icon = null; // back to the default
+    } else if (typeof body.icon === "string" && ICON_KEYS.has(body.icon)) {
+      updates.icon = body.icon;
+    } else {
+      throw new ApiError("INVALID_INPUT", 400, "That is not a folder icon.");
+    }
   }
 
   const { data, error } = await admin

@@ -34,6 +34,9 @@ export function mapFolder(row: Record<string, unknown>): Folder {
     updatedAt: String(row.updated_at),
     trashedAt: row.trashed_at ? String(row.trashed_at) : null,
     isFavorite: Boolean(row.is_favorite),
+    isPinned: Boolean(row.is_pinned),
+    // Null means the default folder icon; the client maps the key to a glyph.
+    icon: row.icon ? String(row.icon) : null,
     lastAccessedAt: row.last_accessed_at ? String(row.last_accessed_at) : null,
   };
 }

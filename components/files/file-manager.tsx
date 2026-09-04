@@ -31,6 +31,7 @@ import { enqueueUploads } from "@/lib/services/uploadService";
 import { filesRepo } from "@/lib/repositories";
 import { FileCard } from "./file-card";
 import { ItemMenu } from "./item-menu";
+import { FOLDER_ICONS, FolderGlyph } from "./folder-icon";
 import { Breadcrumb } from "./breadcrumb";
 import { EmptyState } from "./empty-state";
 import { useDebouncedValue } from "@/lib/hooks/useDebouncedValue";
@@ -69,7 +70,7 @@ export function FileManager({
 }) {
   const router = useRouter();
   const { viewMode, setViewMode } = useUiStore();
-  const { invalidate, createFolder, rename, renameFolder, moveToFolder, toggleFavorite, toggleFolderFavorite, trash, restore, destroy } = useMutateFiles();
+  const { invalidate, createFolder, rename, renameFolder, moveToFolder, toggleFavorite, toggleFolderFavorite, toggleFolderPin, setFolderIcon, trash, restore, destroy } = useMutateFiles();
   const { data: trashData } = useTrash();
 
   const [sort, setSort] = useState<SortKey>("name");
@@ -87,6 +88,7 @@ export function FileManager({
   const [moveTargets, setMoveTargets] = useState<string[]>([]);
   const [deleteTargets, setDeleteTargets] = useState<string[]>([]);
   const [shareTarget, setShareTarget] = useState<FileListItem | null>(null);
+  const [iconTarget, setIconTarget] = useState<FolderType | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [dragOver, setDragOver] = useState(false);
 
@@ -245,6 +247,11 @@ export function FileManager({
     },
     onDelete: (item: FileListItem) => setDeleteTargets([item.id]),
     onRestore: (item: FileListItem) => restore.mutate([item.id]),
+    onTogglePin: (item: FileListItem) => {
+      toggleFolderPin.mutate(item.id);
+      toast.success((item as FolderType).isPinned ? "Folder unpinned" : "Folder pinned", (item as FolderType).name);
+    },
+    onChangeIcon: (item: FileListItem) => setIconTarget(item as FolderType),
   };
 
   const menuFor = (item: FileListItem) => (
@@ -533,6 +540,38 @@ export function FileManager({
           </div>
         </div>
       )}
+
+      <Dialog
+        open={!!iconTarget}
+        onClose={() => setIconTarget(null)}
+        title="Folder icon"
+        description={iconTarget?.name}
+      >
+        <div className="grid grid-cols-4 gap-2">
+          {FOLDER_ICONS.map(({ key, label }) => {
+            const active = (iconTarget?.icon ?? "folder") === key;
+            return (
+              <button
+                key={key}
+                onClick={() => {
+                  if (!iconTarget) return;
+                  // "folder" is the default, stored as null.
+                  setFolderIcon.mutate({ folderId: iconTarget.id, icon: key === "folder" ? null : key });
+                  toast.success("Folder icon updated", iconTarget.name);
+                  setIconTarget(null);
+                }}
+                className={cn(
+                  "flex flex-col items-center gap-1.5 rounded-lg border p-3 transition",
+                  active ? "border-primary bg-primary-soft" : "border-border hover:bg-surface-2",
+                )}
+              >
+                <FolderGlyph icon={key} className="h-9 w-9" iconClassName="h-4 w-4" />
+                <span className="text-[11px] text-muted-foreground">{label}</span>
+              </button>
+            );
+          })}
+        </div>
+      </Dialog>
 
       {/* Drag & drop layer */}
       {dragOver && (

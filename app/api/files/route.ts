@@ -68,7 +68,11 @@ export const GET = handler(async (req: Request) => {
   if (error) throw error;
 
   const mappedFiles = (files ?? []).map((r) => mapFile(r as Record<string, unknown>));
-  const mappedFolders = (folders ?? []).map((r) => mapFolder(r as Record<string, unknown>));
+  const mappedFolders = (folders ?? [])
+    .map((r) => mapFolder(r as Record<string, unknown>))
+    // Pinned folders first, whatever the chosen sort. Pinning exists to put a
+    // folder within reach; a sort that buries it again defeats the point.
+    .sort((a, b) => Number(b.isPinned) - Number(a.isPinned));
   // Only return folders when not categorizing / searching / favoriting / recent.
   const includeFolders = !category && !search && !favoritesOnly && !recent;
   const items = includeFolders ? [...mappedFolders, ...mappedFiles] : mappedFiles;
