@@ -248,6 +248,33 @@ try {
     "the quota field is named the way the client reads it",
   );
 
+  /* ------------------------------------------------------------ account setup */
+  const setupBefore = await api("/api/auth/setup", { token });
+  check(setupBefore.json?.data?.isComplete === false, "a new account has not finished setup");
+
+  // Validated on the server, not only in the form.
+  const badCountry = await api("/api/auth/setup", {
+    token,
+    method: "PUT",
+    body: { countryCode: "ZZ", phoneCountryCode: "+880", phoneNumber: "1712345678", address: "Dhaka" },
+  });
+  check(badCountry.status === 400, "an unknown country is refused", `HTTP ${badCountry.status}`);
+
+  const badPhone = await api("/api/auth/setup", {
+    token,
+    method: "PUT",
+    body: { countryCode: "BD", phoneCountryCode: "880", phoneNumber: "1712345678", address: "Dhaka" },
+  });
+  check(badPhone.status === 400, "a calling code without a plus is refused", `HTTP ${badPhone.status}`);
+
+  const saved = await api("/api/auth/setup", {
+    token,
+    method: "PUT",
+    body: { countryCode: "BD", phoneCountryCode: "+880", phoneNumber: "1712 345678", address: "Dhaka, Bangladesh" },
+  });
+  check(saved.status === 200 && saved.json?.data?.isComplete === true, "setup saves and completes", `HTTP ${saved.status}`);
+  check(saved.json?.data?.countryCode === "BD", "the country is stored", String(saved.json?.data?.countryCode));
+
   /* ------------------------------------------------------------ categories */
   // A PNG was landing in "Other" with a generic icon and no preview. Two paths
   // have to work: the browser-supplied MIME type, and the extension fallback for
