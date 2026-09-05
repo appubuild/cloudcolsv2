@@ -13,7 +13,16 @@ import { ApiError } from "./auth";
 export type AdminRole = "super_admin" | "support" | "operator";
 
 export interface AdminIdentity {
+  /** The admins row. Identifies the staff record, not the person. */
   id: string;
+  /**
+   * The auth account behind it, where one is linked.
+   *
+   * These are different ids and mixing them up is not caught by types: writing
+   * the admins row id into a column that references auth.users fails on the
+   * foreign key, at runtime, in whatever endpoint happened to do it.
+   */
+  userId: string | null;
   email: string;
   name: string;
   role: AdminRole;
@@ -76,7 +85,7 @@ export function verifyAdminToken(token: string): AdminIdentity | null {
   try {
     const data = JSON.parse(Buffer.from(payload, "base64url").toString());
     if (typeof data.exp !== "number" || Date.now() > data.exp) return null;
-    return { id: String(data.sub), email: String(data.email), name: "", role: data.role as AdminRole };
+    return { id: String(data.sub), userId: null, email: String(data.email), name: "", role: data.role as AdminRole };
   } catch {
     return null;
   }
@@ -89,13 +98,19 @@ export async function requireAdmin(req: Request, minRole?: AdminRole): Promise<A
   if (!decoded) throw new ApiError("UNAUTHORIZED", 401, "Admin session required.");
 
   const admin = createAdminClient();
-  const { data } = await admin.from("admins").select("id, email, name, role, is_active").eq("email", decoded.email).maybeSingle();
+  const { data } = await admin.from("admins").select("id, user_id, email, name, role, is_active").eq("email", decoded.email).maybeSingle();
   if (!data || !data.is_active) throw new ApiError("FORBIDDEN", 403, "This admin is inactive.");
   const role = data.role as AdminRole;
   if (minRole && !hasRole(role, minRole)) {
     throw new ApiError("FORBIDDEN", 403, `Requires ${minRole} access.`);
   }
-  return { id: String(data.id), email: String(data.email), name: String(data.name ?? ""), role };
+  return {
+    id: String(data.id),
+    userId: data.user_id ? String(data.user_id) : null,
+    email: String(data.email),
+    name: String(data.name ?? ""),
+    role,
+  };
 }
 
 /** Role hierarchy: super_admin ⊇ support ⊇ operator. */
@@ -108,14 +123,20 @@ export async function authenticateAdmin(email: string, password: string): Promis
   const admin = createAdminClient();
   // Verify the email belongs to an active admin row, then verify the password
   // against Supabase Auth (the admin is also a real auth user with its password).
-  const { data: row } = await admin.from("admins").select("id, email, name, role, is_active, user_id").eq("email", email.trim().toLowerCase()).maybeSingle();
+  const { data: row } = await admin.from("admins").select("id, user_id, email, name, role, is_active").eq("email", email.trim().toLowerCase()).maybeSingle();
   if (!row || !row.is_active) throw new ApiError("INVALID_CREDENTIALS", 401, "Invalid admin credentials.");
 
   const verified = await verifyPassword(email.trim().toLowerCase(), password);
   if (!verified) throw new ApiError("INVALID_CREDENTIALS", 401, "Invalid admin credentials.");
 
   await admin.from("admins").update({ last_login_at: new Date().toISOString() }).eq("id", row.id);
-  return { id: String(row.id), email: String(row.email), name: String(row.name ?? ""), role: row.role as AdminRole };
+  return {
+    id: String(row.id),
+    userId: row.user_id ? String(row.user_id) : null,
+    email: String(row.email),
+    name: String(row.name ?? ""),
+    role: row.role as AdminRole,
+  };
 }
 
 /** Verify a password against Supabase Auth's token endpoint. */

@@ -167,3 +167,45 @@ That walks upload → storage → metadata → listing → download → share �
 The project was originally built for Vercel and that file is still here. Workers
 deployment does not read it; `next.config.mjs` carries the same security headers.
 Delete it if the Vercel path is not wanted.
+
+## Stripe
+
+Nothing about Stripe lives in this repository or in Worker variables. An admin
+enters the keys at `/admin/payment-gateways`, where they are encrypted before they
+reach the database. The one thing the deployment needs is the key that encrypts
+them:
+
+```
+SETTINGS_MASTER_KEY   a runtime secret; without it the settings can be neither
+                      written nor read back
+```
+
+In Stripe, add a webhook endpoint pointing at:
+
+```
+https://<your domain>/api/webhooks/stripe
+```
+
+and subscribe it to exactly these:
+
+| Event | Effect |
+|---|---|
+| `checkout.session.completed` | first payment — the plan activates and the quota rises |
+| `invoice.paid` | renewal — the period is extended |
+| `invoice.payment_failed` | recorded as failed; the plan is left alone, because Stripe retries for days and taking storage away on the first failure would be wrong |
+| `customer.subscription.deleted` | cancelled — the account returns to free |
+| `charge.refunded` | the payment is marked refunded |
+
+Stripe issues a **new** signing secret for each endpoint you create. That is the
+one to paste into the panel — not the one the Stripe CLI prints, which belongs to
+`stripe listen`.
+
+To check the whole integration against real Stripe, with the app running:
+
+```sh
+STRIPE_SK=sk_test_… STRIPE_PK=pk_test_… STRIPE_WH=whsec_…   node scripts/stripe-check.mjs .dev.vars
+```
+
+It creates a throwaway admin and user, saves the settings the way the panel does,
+asks Stripe for a real checkout session, and confirms the plan is **not** granted
+by starting one — then removes both accounts.

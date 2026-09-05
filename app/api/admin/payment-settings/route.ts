@@ -74,7 +74,8 @@ export const PUT = handler(async (req: Request) => {
       secretKey: body.secretKey,
       webhookSecret: body.webhookSecret,
     },
-    admin.id,
+    // The auth account, not the admins row: updated_by references auth.users.
+    admin.userId,
   );
 
   // Which fields changed, never their values.

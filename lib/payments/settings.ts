@@ -113,7 +113,7 @@ export async function writeSettings(
     secretKey?: string;
     webhookSecret?: string;
   },
-  actorId: string,
+  actorId: string | null,
 ): Promise<ProviderSettings> {
   const admin = createAdminClient();
   const existing = await readSecrets(provider);
