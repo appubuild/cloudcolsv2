@@ -5,6 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Badge, Skeleton } from "@/components/ui/misc";
 import { formatBytes } from "@/lib/utils";
 import { Users, HardDrive, CreditCard, Activity, UserPlus, DollarSign } from "lucide-react";
+import { AnalyticsPanel } from "@/components/admin/analytics-panel";
 
 export default function AdminDashboard() {
   const { data: stats, isLoading } = useAdminStats();
@@ -20,6 +21,10 @@ export default function AdminDashboard() {
         <h1 className="text-2xl font-bold text-foreground">Dashboard</h1>
         <p className="mt-1 text-sm text-muted-foreground">Operational snapshot of the CloudCols platform.</p>
       </div>
+
+      {/* Everything below is derived from the rows rather than from counters, so a
+          figure that has drifted shows up here rather than being repeated. */}
+      <AnalyticsPanel />
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <Widget icon={<Users className="h-5 w-5" />} label="Total users" value={isLoading ? "…" : String(stats?.totalUsers ?? 0)} sub={`${stats?.activeUsers ?? 0} active`} />

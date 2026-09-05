@@ -308,6 +308,22 @@ try {
     check(pc.json?.data?.category === "image", `PNG is categorised as an image ${label}`, `got "${pc.json?.data?.category}"`);
   }
 
+  /* --------------------------------------------------------------- activity */
+  // last_accessed_at says something happened; this says what, which is the whole
+  // point of a "recently downloaded" list.
+  const activity = await api("/api/activity?limit=20", { token });
+  const actions = (activity.json?.data?.items ?? []).map((a) => a.action);
+  check(activity.status === 200, "activity reads back", `HTTP ${activity.status}`);
+  check(actions.includes("uploaded"), "the upload was recorded", actions.join(", ") || "none");
+  check(actions.includes("downloaded"), "and so was the download");
+
+  // Repeating an action moves its timestamp instead of adding a row, so opening
+  // the same file twice does not fill the list with itself.
+  await api(`/api/files/download?fileId=${file.id}&disposition=attachment`, { token });
+  const again = await api("/api/activity?limit=20", { token });
+  const downloads = (again.json?.data?.items ?? []).filter((a) => a.action === "downloaded" && a.targetId === file.id);
+  check(downloads.length === 1, "a repeated action does not duplicate the row", `${downloads.length} row(s)`);
+
   /* ----------------------------------------------------------------- share */
   const share = await api('/api/shares', {
     token,

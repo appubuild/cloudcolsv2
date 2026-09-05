@@ -2,6 +2,7 @@ import "server-only";
 import { handler, requireUser, ApiError } from "@/lib/api/auth";
 import { createAdminClient } from "@/lib/supabase/server";
 import { getPresignedDownloadUrl } from "@/lib/services/b2";
+import { recordActivity } from "@/lib/api/activity";
 
 export const dynamic = "force-dynamic";
 
@@ -26,6 +27,10 @@ export const GET = handler(async (req: Request) => {
     .maybeSingle();
   if (!file) throw new ApiError("FILE_NOT_FOUND", 404, "File not found.");
   if (file.status !== "ready") throw new ApiError("FILE_NOT_READY", 409, "File is not available.");
+
+  // What was done, not only that something was: an attachment is a download, an
+  // inline URL is a preview, and Recent should be able to say which.
+  await recordActivity(user.id, { fileId }, disposition === "attachment" ? "downloaded" : "previewed");
 
   // Record access so the file shows in Recent Access (fire-and-forget).
   await admin.from("files").update({ last_accessed_at: new Date().toISOString() }).eq("id", fileId).eq("owner_id", user.id);

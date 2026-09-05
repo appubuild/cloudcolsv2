@@ -10,6 +10,7 @@ import { Badge, Skeleton } from "@/components/ui/misc";
 import { Button } from "@/components/ui/button";
 import { StorageRing } from "@/components/files/storage-ring";
 import { CategoryUsageCards } from "@/components/files/category-usage-cards";
+import { RecentActivity } from "@/components/files/recent-activity";
 import { RecentAccessList } from "@/components/files/recent-access-list";
 import { FolderCard } from "@/components/files/folder-card";
 import { Upload, CloudOff, ArrowRight, Files as FilesIcon, Star, Folder as FolderIcon, Clock } from "lucide-react";
@@ -85,6 +86,19 @@ export default function DashboardPage() {
 
       {/* What the storage is actually spent on. */}
       <CategoryUsageCards />
+
+      {/* What was done, not only what exists. */}
+      <DashboardSection
+        title="Recently used"
+        subtitle="What you opened, downloaded and uploaded"
+        action={
+          <Link href="/app/recent" className="text-sm font-medium text-primary hover:underline">
+            View all recent <ArrowRight className="inline h-3.5 w-3.5" />
+          </Link>
+        }
+      >
+        <RecentActivity limit={8} />
+      </DashboardSection>
 
       {/* Favorite folders */}
       <DashboardSection
