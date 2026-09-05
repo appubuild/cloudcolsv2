@@ -303,7 +303,13 @@ class ApiAdminRepository implements AdminRepository {
       storageUsedBytes: number; activeSubscriptions: number; mrrCents: number; apiRequests7d: number;
     }>("/api/admin/stats");
   }
-  async users() { return apiClient.get<User[]>("/api/admin/users"); }
+  async users() {
+    // The endpoint pages; this returns the first page's items so the existing
+    // list keeps working. The admin users screen does its own paging through
+    // adminFetch when it needs more than one page.
+    const res = await apiClient.get<{ items: User[]; total: number }>("/api/admin/users?pageSize=100");
+    return res.items ?? [];
+  }
   async accounts() { return apiClient.get<User[]>("/api/admin/users"); }
   async payments() { return apiClient.get<Payment[]>("/api/admin/payments"); }
   async plans() { return apiClient.get<Plan[]>("/api/plans"); }

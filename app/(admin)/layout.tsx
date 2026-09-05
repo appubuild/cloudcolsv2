@@ -9,7 +9,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { cn } from "@/lib/utils";
 import { toast } from "@/lib/store/toast";
 import { useAdminSession, clearAdminSession } from "@/lib/store/admin";
-import { LayoutDashboard, Users, Database, CreditCard, KeyRound, Megaphone, FileText, Shield, Settings, LogOut } from "lucide-react";
+import { LayoutDashboard, Users, Database, CreditCard, Wallet, KeyRound, Megaphone, FileText, Shield, Settings, LogOut } from "lucide-react";
 
 const adminNav = [
   { label: "Dashboard", href: "/admin", icon: LayoutDashboard },
@@ -18,6 +18,7 @@ const adminNav = [
   { label: "Plans", href: "/admin/plans", icon: Settings },
   { label: "Subscriptions", href: "/admin/subscriptions", icon: CreditCard },
   { label: "Payments", href: "/admin/payments", icon: CreditCard },
+  { label: "Payment gateways", href: "/admin/payment-gateways", icon: Wallet },
   { label: "Developer API", href: "/admin/api", icon: KeyRound },
   { label: "Ads", href: "/admin/ads", icon: Megaphone },
   { label: "Content", href: "/admin/content", icon: FileText },

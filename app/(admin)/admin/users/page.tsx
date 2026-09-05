@@ -10,7 +10,8 @@ import { toast } from "@/lib/store/toast";
 import { formatBytes, formatDate } from "@/lib/utils";
 import { authRepo } from "@/lib/repositories";
 import { Tabs } from "@/components/ui/tabs";
-import { Search } from "lucide-react";
+import { Search, ChevronRight } from "lucide-react";
+import Link from "next/link";
 import type { User } from "@/lib/types";
 
 export default function AdminUsersPage() {
@@ -76,8 +77,13 @@ export default function AdminUsersPage() {
                   {filtered.map((u) => (
                     <tr key={u.id} className="border-b border-border/60 last:border-0 hover:bg-surface-2/50">
                       <td className="px-4 py-3">
-                        <p className="font-medium text-foreground">{u.name}</p>
-                        <p className="text-xs text-muted-foreground">{u.email}</p>
+                        {/* The whole point of the list is getting to one account. */}
+                        <Link href={`/admin/users/${u.id}`} className="group block">
+                          <p className="font-medium text-foreground group-hover:text-primary">
+                            {u.name} <ChevronRight className="inline h-3.5 w-3.5 opacity-0 transition group-hover:opacity-100" />
+                          </p>
+                          <p className="text-xs text-muted-foreground">{u.email}</p>
+                        </Link>
                       </td>
                       <td className="px-4 py-3"><Badge tone={u.planId === "plan_free" ? "muted" : "info"}>{u.planId.replace("plan_", "")}</Badge></td>
                       <td className="px-4 py-3 text-xs text-muted-foreground">{formatBytes(u.storageUsedBytes)} / {formatBytes(u.storageQuotaBytes)}</td>
