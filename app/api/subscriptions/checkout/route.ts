@@ -1,6 +1,8 @@
 import { handler, requireUser, ApiError } from "@/lib/api/auth";
 import { createAdminClient } from "@/lib/supabase/server";
 import { audit } from "@/lib/api/audit";
+import { stripeProvider } from "@/lib/payments/stripe";
+import { isPlanId } from "@/lib/payments/types";
 import { serverConfig } from "@/lib/config/server-env";
 
 export const dynamic = "force-dynamic";
@@ -61,12 +63,15 @@ export const POST = handler(async (req: Request) => {
   // configured there is nothing to redirect to, and granting the plan anyway is
   // exactly the hole this replaced.
   const provider = body.provider ?? "stripe";
-  const configured =
-    provider === "stripe"
-      ? Boolean(serverConfig("STRIPE_SECRET_KEY"))
-      : Boolean(serverConfig("CRYPTO_PAYMENTS_API_KEY"));
+  if (provider !== "stripe") {
+    // Crypto has an adapter slot and no adapter. Saying so is better than a
+    // generic failure the user cannot act on.
+    throw new ApiError("PROVIDER_UNAVAILABLE", 503, "Crypto payments are not available yet.");
+  }
 
-  if (!configured) {
+  if (!isPlanId(body.planId)) throw new ApiError("PLAN_NOT_FOUND", 404, "Plan not found.");
+
+  if (!(await stripeProvider.isConfigured())) {
     throw new ApiError(
       "PAYMENTS_NOT_CONFIGURED",
       503,
@@ -74,9 +79,20 @@ export const POST = handler(async (req: Request) => {
     );
   }
 
-  // Recorded as pending. The webhook that hears from the provider is what marks
-  // it paid and raises the quota; until then the account keeps the plan it has.
-  const { data: subscription, error } = await admin
+  // Stripe needs somewhere to send the customer back to. From the Worker's own
+  // bindings, so it follows the deployment rather than a build-time guess.
+  const appUrl = (serverConfig("NEXT_PUBLIC_APP_URL", "APP_URL") || "https://cloudcols.com").replace(/\/+$/, "");
+  const checkout = await stripeProvider.startCheckout({
+    userId: user.id,
+    userEmail: user.email,
+    planId: body.planId,
+    successUrl: `${appUrl}/app/storage?checkout=success`,
+    cancelUrl: `${appUrl}/pricing?checkout=cancelled`,
+  });
+
+  // Recorded as pending. The webhook that hears from Stripe is what marks it paid
+  // and raises the quota; until then the account keeps the plan it has.
+  const { data: subscription } = await admin
     .from("subscriptions")
     .insert({
       user_id: user.id,
@@ -87,7 +103,6 @@ export const POST = handler(async (req: Request) => {
     })
     .select("*")
     .single();
-  if (error) throw error;
 
   await admin.from("payments").insert({
     user_id: user.id,
@@ -96,6 +111,7 @@ export const POST = handler(async (req: Request) => {
     currency: "USD",
     provider,
     status: "pending",
+    provider_session_id: checkout.reference,
   });
 
   await audit({
@@ -104,15 +120,8 @@ export const POST = handler(async (req: Request) => {
     action: "subscription.checkout_started",
     targetType: "subscription",
     targetId: subscription?.id ?? "",
-    metadata: { planId: body.planId, amount: plan.price, provider },
+    metadata: { planId: body.planId, amount: plan.price, provider, session: checkout.reference },
   });
 
-  // The provider's hosted page is created by the adapter for that provider. Both
-  // adapters are still to be written; the endpoint refuses above rather than
-  // pretending to have redirected anywhere.
-  throw new ApiError(
-    "PAYMENTS_NOT_CONFIGURED",
-    503,
-    "This payment provider is not connected yet. Nothing has been charged.",
-  );
+  return { status: "checkout" as const, planId: body.planId, checkoutUrl: checkout.url };
 });

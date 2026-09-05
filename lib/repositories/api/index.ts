@@ -260,7 +260,7 @@ class ApiSubscriptionRepository implements SubscriptionRepository {
   async checkout(userId: string, planId: string, provider: string) {
     // A paid plan answers with somewhere to pay, or refuses. It never returns a
     // subscription, because nothing is granted until a provider confirms payment.
-    return apiClient.post<{ status: "applied"; planId: string; checkoutUrl: string | null }>(
+    return apiClient.post<{ status: "applied" | "checkout"; planId: string; checkoutUrl: string | null }>(
       "/api/subscriptions/checkout",
       { planId, provider },
     );

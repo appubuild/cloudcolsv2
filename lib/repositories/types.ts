@@ -129,7 +129,7 @@ export interface SubscriptionRepository {
     userId: string,
     planId: string,
     provider: string,
-  ): Promise<{ status: "applied"; planId: string; checkoutUrl: string | null }>;
+  ): Promise<{ status: "applied" | "checkout"; planId: string; checkoutUrl: string | null }>;
   cancel(userId: string): Promise<Subscription>;
 }
 
