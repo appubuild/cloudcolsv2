@@ -2,6 +2,7 @@ import "server-only";
 import { limited, ApiError, DEFAULT_LIMITS } from "@/lib/api/auth";
 import { createAdminClient } from "@/lib/supabase/server";
 import { getPresignedDownloadUrl } from "@/lib/services/b2";
+import { mustDownload } from "@/lib/services/mime";
 
 export const dynamic = "force-dynamic";
 
@@ -62,7 +63,11 @@ export const GET = limited(async (req: Request) => {
    * URL that saves the file under its own name by default, which is the difference
    * the owner was actually expressing.
    */
-  const attachment = share.permission === "download";
+  // Forced for anything a browser would execute. A share link is the most exposed
+  // path in the product — whoever opens it was sent it by a stranger as far as the
+  // browser is concerned.
+  const forced = mustDownload(String(file.original_filename), file.mime_type ? String(file.mime_type) : null);
+  const attachment = forced || share.permission === "download";
 
   const { presignedUrl, expiresIn } = await getPresignedDownloadUrl(String(file.object_key), 300, {
     ...(attachment ? { downloadFilename: String(file.original_filename) } : {}),

@@ -3,6 +3,7 @@ import { handler, requireUser, ApiError } from "@/lib/api/auth";
 import { createAdminClient } from "@/lib/supabase/server";
 import { getPresignedDownloadUrl } from "@/lib/services/b2";
 import { recordActivity } from "@/lib/api/activity";
+import { mustDownload } from "@/lib/services/mime";
 
 export const dynamic = "force-dynamic";
 
@@ -50,10 +51,20 @@ export const GET = handler(async (req: Request) => {
     return { presignedUrl: thumb.presignedUrl, expiresIn: thumb.expiresIn, filename: String(file.original_filename) };
   }
 
+  /**
+   * A file a browser would execute is never served inline, whatever was asked for.
+   *
+   * .html and .svg can run script, and a convincing login form hosted on storage the
+   * visitor half-recognises is a good phishing page. Storing them is fine — this is
+   * about what happens when someone clicks the link.
+   */
+  const forced = mustDownload(String(file.original_filename), file.mime_type ? String(file.mime_type) : null);
+  const effective = forced ? "attachment" : disposition;
+
   const { presignedUrl, expiresIn } = await getPresignedDownloadUrl(String(file.object_key), 600, {
     // Without the filename the browser saves the storage key — a UUID with no
     // recognisable name — which is what made downloads look like they had failed.
-    ...(disposition === "attachment" ? { downloadFilename: String(file.original_filename) } : {}),
+    ...(effective === "attachment" ? { downloadFilename: String(file.original_filename) } : {}),
     ...(file.mime_type ? { contentType: String(file.mime_type) } : {}),
   });
   return { presignedUrl, expiresIn, filename: String(file.original_filename) };

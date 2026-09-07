@@ -4,6 +4,7 @@ import { requireAdmin } from "@/lib/api/adminAuth";
 import { createAdminClient } from "@/lib/supabase/server";
 import { getPresignedDownloadUrl } from "@/lib/services/b2";
 import { audit } from "@/lib/api/audit";
+import { mustDownload } from "@/lib/services/mime";
 
 export const dynamic = "force-dynamic";
 
@@ -53,8 +54,13 @@ export const GET = handler(async (req: Request, ctx?: { params: Promise<Params> 
     },
   });
 
+  // An admin looking at a customer's .html file should get a download, not a page
+  // rendered in their own admin session's browser.
+  const forced = mustDownload(String(file.original_filename), file.mime_type ? String(file.mime_type) : null);
+
   const { presignedUrl, expiresIn } = await getPresignedDownloadUrl(String(file.object_key), 300, {
     ...(file.mime_type ? { contentType: String(file.mime_type) } : {}),
+    ...(forced ? { downloadFilename: String(file.original_filename) } : {}),
   });
 
   return {

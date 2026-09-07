@@ -1,28 +1,28 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { FileCategory } from "@/lib/types";
 import { CategoryThumb } from "./category-thumb";
 import { useFileUrl } from "@/lib/hooks/useFileUrl";
+import { backfillThumbnail } from "@/lib/services/thumbnailBackfill";
 import { cn } from "@/lib/utils";
 
 /**
- * A file's thumbnail: the stored small version, or the category icon.
+ * A file's thumbnail.
  *
- * `hasThumbnail` decides which. When the file has one, this asks for the derivative
- * — tens of kilobytes — instead of the original. Before thumbnails existed this
- * fetched the full file to draw a tile: an 877 KB photo downloaded to fill a 200 px
- * card, for every image in a folder, on every visit. That is object-storage egress
- * on the one path the architecture exists to keep cheap.
+ * Three cases, in order of what they cost:
  *
- * Files uploaded before thumbnails, and anything whose thumbnail could not be
- * generated, fall back to the icon rather than to the original. Showing the real
- * picture at the cost of the whole file is the behaviour being removed, so it is not
- * the right fallback.
+ *   1. a stored derivative — tens of kilobytes, which is the whole point
+ *   2. an image with no derivative — the original, as it was before thumbnails
+ *      existed, and a derivative is generated from it in the background so this is
+ *      the last time it costs that much
+ *   3. anything else — the category icon
  *
- * Fetched lazily, so only cards scrolled into view ask for a URL at all. Anything
- * that fails — an expired URL, a derivative that is not there — falls back to the
- * icon rather than leaving a broken image in the grid.
+ * Case 2 exists because of a regression I introduced. When thumbnails arrived, this
+ * component started requiring one, and every file uploaded before that day — which
+ * was all of them — silently turned into a generic icon. The pictures had been
+ * showing; they stopped. Falling back to the original is no worse than the behaviour
+ * it replaced, and the backfill means each file pays it once.
  */
 export function FileThumb({
   fileId,
@@ -35,15 +35,28 @@ export function FileThumb({
   category: FileCategory;
   alt: string;
   className?: string;
-  /** Whether the file has a stored derivative. Without one there is nothing to show. */
+  /** Whether the file has a stored derivative. */
   hasThumbnail?: boolean;
 }) {
   const [failed, setFailed] = useState(false);
-  const wanted = Boolean(hasThumbnail) && !failed;
+  const isImage = category === "image";
+  const stored = Boolean(hasThumbnail);
 
-  const { data } = useFileUrl(fileId, wanted, "thumb");
+  // An image without a derivative still gets a picture, from the original.
+  const wantOriginal = isImage && !stored && !failed;
+  const want = (stored || wantOriginal) && !failed;
 
-  if (!wanted || !data?.url) {
+  const { data } = useFileUrl(fileId, want, stored ? "thumb" : "full");
+
+  // One attempt per file per page, whatever else re-renders.
+  const attempted = useRef(false);
+  useEffect(() => {
+    if (!wantOriginal || !data?.url || attempted.current) return;
+    attempted.current = true;
+    void backfillThumbnail(fileId, data.url);
+  }, [wantOriginal, data?.url, fileId]);
+
+  if (!want || !data?.url) {
     return <CategoryThumb category={category} className={className} />;
   }
 

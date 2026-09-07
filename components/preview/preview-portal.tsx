@@ -7,6 +7,8 @@ import { filesRepo } from "@/lib/repositories";
 import { useAuthStore } from "@/lib/store/auth";
 import { Spinner, Badge } from "@/components/ui/misc";
 import { CategoryThumb } from "@/components/files/category-thumb";
+import { TextEditor } from "./text-editor";
+import { isTextEditable, TEXT_EDIT_MAX_BYTES } from "@/lib/services/fileTypes";
 import { useFileUrl } from "@/lib/hooks/useFileUrl";
 import { formatBytes } from "@/lib/utils";
 import { toast } from "@/lib/store/toast";
@@ -122,7 +124,19 @@ export function PreviewPortal({ fileId, onClose }: { fileId: string | null; onCl
  */
 function FileRenderer({ file }: { file: File }) {
   const cat = file.category;
-  const previewable = cat === "image" || cat === "video" || cat === "audio" || cat === "pdf";
+
+  /**
+   * Text gets an editor rather than a viewer.
+   *
+   * Not by category — a .md is a "document" and a .json is "other", and both are text
+   * somebody may want to fix a line of. The filename and the stored type decide,
+   * which is the same rule the server applies when it refuses to edit a .docx.
+   *
+   * Large files are shown but not opened in the editor: pulling a 200 MB log into a
+   * textarea would hang the tab.
+   */
+  const isText = isTextEditable(file.originalFilename, file.mimeType) && file.sizeBytes <= TEXT_EDIT_MAX_BYTES;
+  const previewable = isText || cat === "image" || cat === "video" || cat === "audio" || cat === "pdf";
   const { data, isLoading, isError } = useFileUrl(file.id, previewable);
 
   if (previewable && isLoading) {
@@ -140,6 +154,10 @@ function FileRenderer({ file }: { file: File }) {
   }
 
   const url = data?.url ?? "";
+
+  if (isText && url) {
+    return <TextEditor file={file} url={url} />;
+  }
 
   if (cat === "image") {
     return (
