@@ -14,7 +14,16 @@ import { formatBytes } from "@/lib/utils";
 import { toast } from "@/lib/store/toast";
 import { downloadFile, openFileInNewTab } from "@/lib/services/fileActions";
 
-export function PreviewPortal({ fileId, onClose }: { fileId: string | null; onClose: () => void }) {
+export function PreviewPortal({
+  fileId,
+  onClose,
+  startEditing = false,
+}: {
+  fileId: string | null;
+  onClose: () => void;
+  /** Opened from "Edit" rather than "Preview": skip the reading view. */
+  startEditing?: boolean;
+}) {
   const me = useAuthStore((s) => s.user);
   const [file, setFile] = useState<File | null>(null);
   const [loading, setLoading] = useState(false);
@@ -107,7 +116,7 @@ export function PreviewPortal({ fileId, onClose }: { fileId: string | null; onCl
         ) : !file ? (
           <div className="text-center text-white/70">Preview not available.</div>
         ) : (
-          <FileRenderer file={file} />
+          <FileRenderer file={file} startEditing={startEditing} />
         )}
       </div>
     </div>
@@ -122,7 +131,7 @@ export function PreviewPortal({ fileId, onClose }: { fileId: string | null; onCl
  * showed the file. They now read from a short-lived signed URL, so the bytes come
  * straight from storage and never through the app.
  */
-function FileRenderer({ file }: { file: File }) {
+function FileRenderer({ file, startEditing }: { file: File; startEditing?: boolean }) {
   const cat = file.category;
 
   /**
@@ -156,7 +165,7 @@ function FileRenderer({ file }: { file: File }) {
   const url = data?.url ?? "";
 
   if (isText && url) {
-    return <TextEditor file={file} url={url} />;
+    return <TextEditor file={file} url={url} startEditing={startEditing} />;
   }
 
   if (cat === "image") {
@@ -197,8 +206,17 @@ function FileRenderer({ file }: { file: File }) {
         src={url}
         title={file.originalFilename}
         className="h-full w-full rounded-lg bg-white"
-        // The PDF is untrusted content, so it renders with no access to this origin.
-        sandbox=""
+        /*
+         * No sandbox here, unlike the HTML preview.
+         *
+         * This points at storage's own origin, so the same-origin policy already
+         * keeps it away from this page — a sandbox adds nothing. What it did do was
+         * disable the browser's built-in PDF viewer, which needs scripting, so the
+         * frame came up empty.
+         *
+         * The HTML preview is the opposite case: it uses srcDoc, which inherits this
+         * origin, so its sandbox is load-bearing and stays.
+         */
       />
     );
   }

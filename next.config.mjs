@@ -41,6 +41,19 @@ const nextConfig = {
           "img-src 'self' data: blob: https:; " +
           "font-src 'self' data:; " +
           "connect-src 'self' https:; " +
+          // Files live on object storage and are read through short-lived presigned
+          // URLs, so previewing one always points at another origin. Without these
+          // two they fall back to default-src 'self' and the browser refuses:
+          // a PDF showed "This content is blocked. Contact the site owner", and
+          // video and audio were broken the same way without anyone noticing.
+          //
+          // `https:` rather than a fixed host because the storage endpoint is
+          // configuration, and a CSP baked at build time cannot read it. The framed
+          // document is cross-origin either way, so it can no more reach this origin
+          // than any other site could — which is what frame-ancestors and the
+          // same-origin policy are for.
+          "frame-src 'self' blob: https:; " +
+          "media-src 'self' blob: https:; " +
           "frame-ancestors 'none'; " +
           "base-uri 'self'",
       });

@@ -24,12 +24,12 @@ import type { File as CloudFile } from "@/lib/types";
  */
 type Mode = "source" | "rendered";
 
-export function TextEditor({ file, url }: { file: CloudFile; url: string }) {
+export function TextEditor({ file, url, startEditing = false }: { file: CloudFile; url: string; startEditing?: boolean }) {
   const [text, setText] = useState<string | null>(null);
   const [original, setOriginal] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
-  const [editing, setEditing] = useState(false);
+  const [editing, setEditing] = useState(startEditing);
   const [mode, setMode] = useState<Mode>("source");
 
   const ext = extensionOf(file.originalFilename);
@@ -51,7 +51,8 @@ export function TextEditor({ file, url }: { file: CloudFile; url: string }) {
         if (cancelled) return;
         setText(t);
         setOriginal(t);
-        setMode(canRender ? "rendered" : "source");
+        // Opened to edit: show the source, not a rendered view of it.
+        setMode(canRender && !startEditing ? "rendered" : "source");
       })
       .catch((e: Error) => {
         if (!cancelled) setError(e.message);
@@ -60,7 +61,7 @@ export function TextEditor({ file, url }: { file: CloudFile; url: string }) {
     return () => {
       cancelled = true;
     };
-  }, [url, canRender]);
+  }, [url, canRender, startEditing]);
 
   const dirty = text !== null && text !== original;
 

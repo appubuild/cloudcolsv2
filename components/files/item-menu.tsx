@@ -15,16 +15,20 @@ import {
   Clock,
   Pin,
   Palette,
+  FileEdit,
 } from "lucide-react";
 import { Dropdown, DropdownItem } from "@/components/ui/dropdown";
 import type { FileListItem, File as CloudFile, Folder as CloudFolder } from "@/lib/types";
 import { downloadFile, openFileInNewTab, copyItemLink } from "@/lib/services/fileActions";
+import { isTextEditable, TEXT_EDIT_MAX_BYTES } from "@/lib/services/fileTypes";
 
 export interface ItemMenuHandlers {
   onTogglePin?: (item: FileListItem) => void;
   onChangeIcon?: (item: FileListItem) => void;
   onOpen: (item: FileListItem) => void;
   onRename: (item: FileListItem) => void;
+  /** Opens a text file straight in the editor. Absent for anything not editable. */
+  onEdit?: (item: FileListItem) => void;
   onMove: (item: FileListItem) => void;
   onShare: (item: FileListItem) => void;
   onToggleFavorite: (item: FileListItem) => void;
@@ -54,6 +58,20 @@ export function ItemMenu({
   const folder = item as CloudFolder;
   const favorite = isFolder ? Boolean(folder.isFavorite) : Boolean(file.isFavorite);
   const linkPath = isFolder ? `/app/files/${folder.id}` : `/app/files?file=${file.id}`;
+
+  /**
+   * Whether "Edit" belongs on this item.
+   *
+   * Decided by the filename and the stored type rather than by category — a .md is a
+   * "document" and a .json is "other", and both are text somebody may want to fix a
+   * line of. The same rule the server applies when it refuses to edit a .docx, so the
+   * menu never offers something the save would reject.
+   */
+  const editable =
+    !isFolder &&
+    Boolean(handlers.onEdit) &&
+    isTextEditable(file.originalFilename, file.mimeType) &&
+    file.sizeBytes <= TEXT_EDIT_MAX_BYTES;
 
   return (
     <Dropdown
@@ -85,6 +103,12 @@ export function ItemMenu({
           <DropdownItem icon={<Eye className="h-4 w-4" />} onClick={() => handlers.onOpen(item)}>
             {isFolder ? "Open" : "Preview"}
           </DropdownItem>
+
+          {editable && (
+            <DropdownItem icon={<FileEdit className="h-4 w-4" />} onClick={() => handlers.onEdit!(item)}>
+              Edit
+            </DropdownItem>
+          )}
 
           {!isFolder && (
             <DropdownItem icon={<Download className="h-4 w-4" />} onClick={() => void downloadFile(file)}>

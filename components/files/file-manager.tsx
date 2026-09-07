@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
+  FileEdit,
   Upload,
   LayoutGrid,
   List,
@@ -43,6 +44,7 @@ import { Input, Label } from "@/components/ui/input";
 import { Tabs } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
 import { PreviewPortal } from "@/components/preview/preview-portal";
+import { isTextEditable, TEXT_EDIT_MAX_BYTES } from "@/lib/services/fileTypes";
 
 type Mode = "browse" | "recent" | "favorites" | "category" | "trash" | "search";
 type SortKey = "name" | "size" | "modified" | "accessed";
@@ -81,6 +83,8 @@ export function FileManager({
   const [order, setOrder] = useState<"asc" | "desc">("asc");
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [previewId, setPreviewId] = useState<string | null>(null);
+  // Set when the preview was opened from "Edit", so it skips the reading view.
+  const [previewEditing, setPreviewEditing] = useState(false);
   const [createFolderOpen, setCreateFolderOpen] = useState(false);
   const [newFolderName, setNewFolderName] = useState("");
   const [renameTarget, setRenameTarget] = useState<FileListItem | null>(null);
@@ -237,6 +241,10 @@ export function FileManager({
    */
   const itemHandlers = {
     onOpen: (item: FileListItem) => openItem(item),
+    onEdit: (item: FileListItem) => {
+      setPreviewEditing(true);
+      setPreviewId(item.id);
+    },
     onRename: (item: FileListItem) => {
       setRenameTarget(item);
       setRenameValue("parentId" in item ? (item as FolderType).name : (item as File).originalFilename);
@@ -266,6 +274,8 @@ export function FileManager({
       router.push(`/app/files/${encodeURIComponent(item.id)}`);
       return;
     }
+    // Preview, not edit — a previous "Edit" must not leave the intent set.
+    setPreviewEditing(false);
     setPreviewId(item.id);
   };
 
@@ -319,6 +329,23 @@ export function FileManager({
   };
 
   const selectedCount = selected.size;
+
+  /**
+   * The selected item, if exactly one is selected and it is text worth opening.
+   *
+   * Same rule as the three-dot menu and the server: decided by the filename and the
+   * stored type, not the category, so the button never appears on something the save
+   * would refuse.
+   */
+  const singleEditable = (() => {
+    if (selected.size !== 1) return null;
+    const item = effectiveItems.find((i) => selected.has(i.id));
+    if (!item || isFolderItem(item)) return null;
+    const file = item as File;
+    return isTextEditable(file.originalFilename, file.mimeType) && file.sizeBytes <= TEXT_EDIT_MAX_BYTES
+      ? item
+      : null;
+  })();
 
   const body = (() => {
     if (isLoading)
@@ -501,6 +528,15 @@ export function FileManager({
                 <Download className="h-4 w-4" /> Download
               </Button>
             </>
+          )}
+          {!isTrashView && selectedCount === 1 && singleEditable && (
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => itemHandlers.onEdit(singleEditable)}
+            >
+              <FileEdit className="h-4 w-4" /> Edit
+            </Button>
           )}
           {!isTrashView && selectedCount === 1 && (
             <>
@@ -773,7 +809,14 @@ export function FileManager({
       </Dialog>
 
       <ShareDialog item={shareTarget} onClose={() => setShareTarget(null)} />
-      <PreviewPortal fileId={previewId} onClose={() => setPreviewId(null)} />
+      <PreviewPortal
+        fileId={previewId}
+        startEditing={previewEditing}
+        onClose={() => {
+          setPreviewId(null);
+          setPreviewEditing(false);
+        }}
+      />
     </div>
   );
 }
