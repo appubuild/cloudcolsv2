@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { AdSlot } from "@/components/ads/ad-slot";
 import { usePathname } from "next/navigation";
 import { appNav } from "@/lib/nav";
 import { Icon } from "@/components/ui/icon";
@@ -75,6 +76,9 @@ export function Sidebar({ open, onClose }: { open?: boolean; onClose?: () => voi
         >
           Manage storage
         </Link>
+        {/* Renders nothing unless ads are enabled, this placement is on, a provider
+            is configured, and the account's plan is ad-supported. */}
+        <AdSlot placement="sidebar" className="mt-3 h-24" />
       </div>
     </>
   );

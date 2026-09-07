@@ -7,7 +7,13 @@
 import "server-only";
 import { audit } from "@/lib/api/audit";
 
-export type JobName = "webhook-delivery" | "thumbnail" | "trash-cleanup" | "inactivity";
+/**
+ * "thumbnail" used to be one of these. The job it ran wrote a thumbnail_url pointing
+ * at a derivative it never created — nothing in a Worker can resize an image — and
+ * parked video and audio in "processing" on the way. Thumbnails are made in the
+ * browser at upload time now (lib/services/thumbnailer.ts), so there is no job.
+ */
+export type JobName = "webhook-delivery" | "trash-cleanup" | "inactivity";
 
 export interface JobContext {
   name: JobName;
@@ -25,12 +31,6 @@ export async function runJob(name: JobName, data?: Record<string, unknown>): Pro
       case "trash-cleanup": {
         const { runTrashCleanup } = await import("./trashCleanup");
         const result = await runTrashCleanup();
-        return { name, ok: true, message: result };
-      }
-      case "thumbnail": {
-        const { generateThumbnail } = await import("./thumbnail");
-        const fileId = String(data?.fileId ?? "");
-        const result = fileId ? await generateThumbnail(fileId) : "Thumbnail job requires a fileId.";
         return { name, ok: true, message: result };
       }
       case "webhook-delivery": {

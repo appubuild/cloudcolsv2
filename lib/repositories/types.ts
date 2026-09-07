@@ -83,6 +83,8 @@ export interface FilesRepository {
     userId: string,
     fileId: string,
     disposition?: "inline" | "attachment",
+    /** "thumb" asks for the stored small version rather than the file itself. */
+    variant?: "full" | "thumb",
   ): Promise<{ url: string; expiresIn: number; filename?: string }>;
 }
 
@@ -92,7 +94,15 @@ export interface AuthRepository {
   signUp(name: string, email: string, password: string): Promise<User>;
   signOut(): Promise<void>;
   updateProfile(userId: string, patch: Partial<User>): Promise<User>;
-  changePlan(userId: string, planId: string): Promise<User>;
+  /**
+   * Deliberately absent: changePlan().
+   *
+   * There used to be one, backed by an endpoint that set the quota and wrote a
+   * payment row marked "succeeded" without a provider ever being involved. A plan
+   * is worth money, so the only two things that may grant one are a downgrade to
+   * free and a payment a provider confirmed. Both live on SubscriptionRepository —
+   * checkout() to start, and the signed webhook to finish.
+   */
   deleteAccount(userId: string): Promise<void>;
 }
 

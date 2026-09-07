@@ -4,7 +4,10 @@
   // takes the target from here, not from the dashboard, so a mismatch quietly
   // creates a second Worker instead of updating the one that was configured.
   "name": "cloudcolsv2",
-  "main": ".open-next/worker.js",
+  // worker/index.mjs, not .open-next/worker.js directly: the generated worker exports
+  // only `fetch`, and Cron Triggers call `scheduled`. The wrapper forwards fetch
+  // untouched and adds the scheduled handler.
+  "main": "worker/index.mjs",
   "compatibility_date": "2026-08-01",
   "compatibility_flags": ["nodejs_compat"],
 
@@ -14,6 +17,13 @@
   },
 
   "observability": { "enabled": true },
+
+  // Trash cleanup and the inactivity lifecycle. Both delete things, so once a day at
+  // a quiet hour rather than a tight loop. Without this the endpoints existed and
+  // nothing ever called them.
+  "triggers": {
+    "crons": ["17 3 * * *"]
+  },
 
   // Public configuration only. NEXT_PUBLIC_* values are inlined into the browser
   // bundle at build time anyway, so holding them as Worker secrets would achieve

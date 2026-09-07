@@ -19,12 +19,16 @@ export function SignedInGate() {
   const router = useRouter();
   const params = useSearchParams();
   const user = useAuthStore((s) => s.user);
+  const loading = useAuthStore((s) => s.loading);
 
   useEffect(() => {
-    if (!user) return;
+    // `user` is null both when nobody is signed in and before the session has been
+    // read. Acting on the first without waiting for the second is why this component
+    // existed and never fired: the store was empty on every page except /app.
+    if (loading || !user) return;
     const plan = params.get("plan");
     router.replace(plan ? `/app/storage?plan=${encodeURIComponent(plan)}` : "/app");
-  }, [user, params, router]);
+  }, [user, loading, params, router]);
 
   return null;
 }

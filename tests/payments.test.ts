@@ -2,12 +2,12 @@
  * The parts of the payment layer that decide whether money means anything.
  *
  * Not a Stripe integration test — that needs Stripe. These cover the logic that
- * is ours and that fails silently when it is wrong: what a plan is worth, what
- * counts as configured, and that the encryption used for stored credentials
- * actually round-trips and actually fails on tampering.
+ * is ours and that fails silently when it is wrong: that the encryption used for
+ * stored credentials actually round-trips and actually fails on tampering.
+ *
+ * What a plan is worth moved to the plans table; its tests moved to plans.test.ts.
  */
 import { describe, it, expect, beforeEach, afterAll } from "vitest";
-import { PLANS, isPlanId } from "@/lib/payments/types";
 
 const KEYS = ["SETTINGS_MASTER_KEY"] as const;
 const original = Object.fromEntries(KEYS.map((k) => [k, process.env[k]]));
@@ -21,31 +21,6 @@ afterAll(() => {
     if (original[k] === undefined) delete process.env[k];
     else process.env[k] = original[k];
   }
-});
-
-describe("plans", () => {
-  it("prices and quotas come from the server, not the request", () => {
-    // The webhook grants PLANS[planId].quota rather than anything the event
-    // carried. Stripe reports that money arrived; what it buys is ours to decide.
-    expect(PLANS.plan_free.priceCents).toBe(0);
-    expect(PLANS.plan_plus.quota).toBeGreaterThan(PLANS.plan_free.quota);
-    expect(PLANS.plan_pro.quota).toBeGreaterThan(PLANS.plan_plus.quota);
-    expect(PLANS.plan_business.quota).toBeGreaterThan(PLANS.plan_pro.quota);
-  });
-
-  it("rejects a plan id it does not know", () => {
-    expect(isPlanId("plan_pro")).toBe(true);
-    expect(isPlanId("plan_free_but_huge")).toBe(false);
-    expect(isPlanId("")).toBe(false);
-    // A caller-supplied string reaching the quota update would let anyone name
-    // their own plan.
-    expect(isPlanId("__proto__")).toBe(false);
-  });
-
-  it("only the free plan is free", () => {
-    const free = Object.entries(PLANS).filter(([, p]) => p.priceCents === 0);
-    expect(free.map(([id]) => id)).toEqual(["plan_free"]);
-  });
 });
 
 describe("stored credentials", () => {

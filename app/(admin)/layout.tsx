@@ -6,10 +6,11 @@ import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { Logo } from "@/components/brand/logo";
 import { Toaster } from "@/components/ui/toaster";
+import { MockDataBanner } from "@/components/layout/mock-data-banner";
 import { cn } from "@/lib/utils";
 import { toast } from "@/lib/store/toast";
 import { useAdminSession, clearAdminSession } from "@/lib/store/admin";
-import { LayoutDashboard, Users, Database, CreditCard, Wallet, KeyRound, Megaphone, FileText, Shield, Settings, LogOut } from "lucide-react";
+import { LayoutDashboard, Users, Database, CreditCard, Wallet, KeyRound, Megaphone, FileText, FileStack, Shield, Settings, SlidersHorizontal, LogOut } from "lucide-react";
 
 const adminNav = [
   { label: "Dashboard", href: "/admin", icon: LayoutDashboard },
@@ -22,7 +23,9 @@ const adminNav = [
   { label: "Developer API", href: "/admin/api", icon: KeyRound },
   { label: "Ads", href: "/admin/ads", icon: Megaphone },
   { label: "Content", href: "/admin/content", icon: FileText },
+  { label: "Pages", href: "/admin/pages", icon: FileStack },
   { label: "Security", href: "/admin/security", icon: Shield },
+  { label: "System settings", href: "/admin/settings", icon: SlidersHorizontal },
 ];
 
 export default function AdminLayout({ children }: { children: ReactNode }) {
@@ -40,6 +43,9 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
 
   return (
     <div className="min-h-screen bg-background">
+      {/* The admin panel is where fabricated data does the most damage: every number
+          here is one someone makes a decision on. */}
+      <MockDataBanner />
       <header className="sticky top-0 z-30 border-b border-border bg-surface/80 backdrop-blur">
         <div className="flex h-14 items-center justify-between px-4">
           <div className="flex items-center gap-3">

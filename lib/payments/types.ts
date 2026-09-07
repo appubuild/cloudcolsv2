@@ -16,7 +16,19 @@ import "server-only";
  *     boolean that a caller might forget to check.
  */
 
-export type PlanId = "plan_free" | "plan_plus" | "plan_pro" | "plan_business";
+/**
+ * A plan id.
+ *
+ * A plain string now, not a union. Plans are rows in the `plans` table that an
+ * admin creates and retires, so the set is not knowable at compile time — a union
+ * would have to be edited and redeployed every time someone adds a plan, which is
+ * the opposite of what the admin panel is for.
+ *
+ * What the union was really buying was "this id is real", and a type could only
+ * ever claim that. `requirePlan()` in lib/plans/catalog checks it against the
+ * table, which is the only place the answer actually lives.
+ */
+export type PlanId = string;
 
 export interface CheckoutRequest {
   userId: string;
@@ -70,20 +82,23 @@ export interface PaymentProvider {
    * the provider sent, and re-serialising JSON changes them.
    */
   verifyWebhook(rawBody: string, signature: string): Promise<PaymentEvent>;
+
+  /**
+   * Stops the recurring charge, at the end of the period already paid for.
+   *
+   * Not immediately: the customer paid through to a date, and taking the storage
+   * away before it is a refund we did not give. The plan is lowered when the
+   * provider says the subscription actually ended, which arrives at the webhook
+   * as `subscription_cancelled`.
+   */
+  cancelSubscription(providerSubscriptionId: string): Promise<{ endsAt: string | null }>;
 }
 
-/** What each plan costs and grants. The server's copy is the one that counts. */
-export const PLANS: Record<PlanId, { quota: number; priceCents: number; name: string }> = {
-  plan_free: { quota: 5 * 1024 * 1024 * 1024, priceCents: 0, name: "Free" },
-  plan_plus: { quota: 100 * 1024 * 1024 * 1024, priceCents: 499, name: "Plus" },
-  plan_pro: { quota: 200 * 1024 * 1024 * 1024, priceCents: 899, name: "Pro" },
-  plan_business: { quota: 1024 * 1024 * 1024 * 1024, priceCents: 1999, name: "Business" },
-};
-
-export function isPlanId(value: string): value is PlanId {
-  // hasOwnProperty, not `in`: `in` walks the prototype chain, so "__proto__" and
-  // "toString" both answered true. PLANS["__proto__"] is the Object prototype,
-  // which has no quota — the plan update would then have written undefined into
-  // the account's storage limit.
-  return Object.prototype.hasOwnProperty.call(PLANS, value);
-}
+/**
+ * What each plan costs and grants used to be a constant here.
+ *
+ * It is now the `plans` table, read through `lib/plans/catalog`. The rule it
+ * encoded has not changed and still matters: a quota comes from the server's own
+ * record of the plan, never from anything the request or the provider's event
+ * carried. Stripe reports that money arrived; what it buys is ours to decide.
+ */

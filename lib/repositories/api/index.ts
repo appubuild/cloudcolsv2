@@ -50,12 +50,19 @@ function qs(params: Record<string, unknown>): string {
 class ApiAuthRepository implements AuthRepository {
   private async resolveCurrent(userId: string, email: string): Promise<User> {
     const profile = await apiClient.get<Record<string, unknown>>("/api/auth/me");
+    // The saved display name, falling back to the address's local part. This used
+    // to always use the address, so Settings could save a name that nothing ever
+    // displayed — the request succeeded and the screen never changed.
+    const local = email.split("@")[0] || "User";
+    const displayName =
+      typeof profile.displayName === "string" && profile.displayName.trim() ? profile.displayName.trim() : null;
+
     return {
       id: userId,
       email,
-      name: email.split("@")[0] ?? "User",
-      username: (email.split("@")[0] ?? "user").replace(/[^a-z0-9]/gi, ""),
-      avatarUrl: null,
+      name: displayName ?? local,
+      username: local.replace(/[^a-z0-9]/gi, ""),
+      avatarUrl: typeof profile.avatarUrl === "string" && profile.avatarUrl ? profile.avatarUrl : null,
       // /api/auth/me answers in camelCase. Reading snake_case here meant every
       // field fell back to its default, so storage always showed 0 B used however
       // much had been uploaded, and the plan always read as free.
@@ -104,12 +111,6 @@ class ApiAuthRepository implements AuthRepository {
   async updateProfile(userId: string, patch: Partial<User>): Promise<User> {
     // Persist editable profile fields via the server, then return the fresh profile.
     return apiClient.patch<User>("/api/profile", { name: patch.name, avatarUrl: patch.avatarUrl });
-  }
-
-  async changePlan(userId: string, planId: string): Promise<User> {
-    // In Phase 2, plan changes are applied via a subscription/billing endpoint.
-    await apiClient.post<{ ok: boolean }>("/api/plan/change", { planId });
-    return this.resolveCurrent(userId, userId);
   }
 
   async deleteAccount(userId: string): Promise<void> {
@@ -178,9 +179,11 @@ class ApiFilesRepository implements FilesRepository {
     userId: string,
     fileId: string,
     disposition: "inline" | "attachment" = "inline",
+    variant: "full" | "thumb" = "full",
   ): Promise<{ url: string; expiresIn: number; filename?: string }> {
     const res = await apiClient.get<{ presignedUrl: string; expiresIn: number; filename?: string }>(
-      `/api/files/download?fileId=${encodeURIComponent(fileId)}&disposition=${disposition}`,
+      `/api/files/download?fileId=${encodeURIComponent(fileId)}&disposition=${disposition}` +
+        (variant === "thumb" ? "&variant=thumb" : ""),
     );
     return { url: res.presignedUrl, expiresIn: res.expiresIn, filename: res.filename };
   }

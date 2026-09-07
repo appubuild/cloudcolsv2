@@ -28,7 +28,7 @@ export const GET = handler(async (req: Request) => {
   let q = client
     .from("user_storage")
     .select(
-      "user_id, plan_id, status, developer_enabled, storage_used_bytes, storage_quota_bytes, created_at, last_login_at, display_name",
+      "user_id, plan_id, status, developer_enabled, storage_used_bytes, storage_quota_bytes, created_at, last_login_at, display_name, country_code, setup_completed_at",
       { count: "exact" },
     );
   if (status) q = q.eq("status", status);
@@ -69,6 +69,10 @@ export const GET = handler(async (req: Request) => {
     storageQuotaBytes: Number(r.storage_quota_bytes ?? 0),
     createdAt: r.created_at ? String(r.created_at) : null,
     lastLoginAt: r.last_login_at ? String(r.last_login_at) : null,
+    // Whether the account finished the post-registration setup. Support asks this
+    // constantly, and without it the only way to tell was to open each account.
+    countryCode: r.country_code ? String(r.country_code) : null,
+    setupCompleted: Boolean(r.setup_completed_at),
   }));
 
   let total = count ?? mapped.length;

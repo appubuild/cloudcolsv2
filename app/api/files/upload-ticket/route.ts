@@ -3,7 +3,13 @@ import { limited, requireUser, ApiError, DEFAULT_LIMITS } from "@/lib/api/auth";
 import { createAdminClient } from "@/lib/supabase/server";
 import { getQuota, assertCanUpload } from "@/lib/api/quota";
 import { buildObjectKey, deriveCategory } from "@/lib/storage/categories";
-import { getPresignedUploadUrl } from "@/lib/services/b2";
+import {
+  getPresignedUploadUrl,
+  createMultipartUpload,
+  MULTIPART_PART_SIZE,
+  MULTIPART_THRESHOLD,
+  MULTIPART_MAX_PARTS,
+} from "@/lib/services/b2";
 
 export const dynamic = "force-dynamic";
 
@@ -44,7 +50,29 @@ export const POST = limited(async (req: Request) => {
   const objectKey = buildObjectKey(user.id, category, body.filename);
   const contentType = body.mimeType ?? "application/octet-stream";
 
-  const presign = await getPresignedUploadUrl({ objectKey, contentType });
+  /**
+   * Small files get one presigned PUT. Large ones get a multipart upload.
+   *
+   * The threshold exists because multipart costs a create, a complete, and a presign
+   * per part — worth it for a file big enough that losing the connection matters, and
+   * pure overhead for one that finishes in a single round trip.
+   *
+   * Above the part limit the parts are made bigger rather than refusing: S3 allows
+   * 10,000 parts, and a fixed part size would cap the object at 160 GB.
+   */
+  const multipart = body.sizeBytes > MULTIPART_THRESHOLD;
+  let presignedUrl = "";
+  let multipartUploadId: string | null = null;
+  let partSize = MULTIPART_PART_SIZE;
+
+  if (multipart) {
+    partSize = Math.max(MULTIPART_PART_SIZE, Math.ceil(body.sizeBytes / MULTIPART_MAX_PARTS));
+    const created = await createMultipartUpload(objectKey, contentType);
+    multipartUploadId = created.uploadId;
+  } else {
+    const presign = await getPresignedUploadUrl({ objectKey, contentType });
+    presignedUrl = presign.presignedUrl;
+  }
 
   const admin = createAdminClient();
   const { data, error } = await admin
@@ -67,9 +95,22 @@ export const POST = limited(async (req: Request) => {
   return {
     uploadId: String(data.id),
     objectKey,
-    presignedUrl: presign.presignedUrl,
-    partSizeBytes: 10 * 1024 * 1024,
-    expiresIn: presign.expiresIn,
+    presignedUrl,
+    partSizeBytes: partSize,
+    expiresIn: 3600,
     fileId: String(data.id),
+    // What the client should do with what it was given.
+    multipart,
+    partCount: multipart ? Math.ceil(body.sizeBytes / partSize) : 1,
+    /**
+     * The storage upload id, held by the client and passed back when asking for part
+     * URLs and when completing.
+     *
+     * Not persisted: it is not a capability on its own. A part URL can only be
+     * obtained for a file the caller owns, and the object key those URLs point at is
+     * derived server-side from the file's own row — so the worst a wrong id can do is
+     * break the sender's own upload.
+     */
+    multipartUploadId,
   };
 }, DEFAULT_LIMITS.uploadTicket);

@@ -555,18 +555,6 @@ class MockAuthRepository implements AuthRepository {
     return user;
   }
 
-  async changePlan(userId: string, planId: string) {
-    await delay();
-    const db = getDb();
-    const user = requireUser(db, userId);
-    const plan = db.plans.find((p) => p.id === planId);
-    if (!plan) throw new CloudColsError("PLAN_NOT_FOUND", 404, "Plan not found.");
-    user.planId = planId;
-    user.storageQuotaBytes = plan.storageQuotaBytes;
-    saveDb();
-    return user;
-  }
-
   async deleteAccount(userId: string) {
     await delay();
     const db = getDb();

@@ -4,6 +4,7 @@ import { Badge } from "@/components/ui/misc";
 import { Logo } from "@/components/brand/logo";
 import { Cloud, Shield, FolderOpen, Share2, Zap, Code2 } from "lucide-react";
 import { getLanding, DEFAULT_LANDING } from "@/lib/content/landing";
+import { HeroCta } from "@/components/marketing/hero-cta";
 
 // Landing content is CMS-editable at runtime, so the page must render on
 // demand (not be statically prerendered with build-time defaults).
@@ -45,9 +46,9 @@ export default async function HomePage() {
           <p className="mx-auto mt-5 max-w-2xl text-lg text-muted-foreground">
             {landing.hero.subtitle}
           </p>
-          <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
-            <Link href="/register"><Button size="lg">{landing.hero.primary}</Button></Link>
-            <Link href="/login"><Button size="lg" variant="secondary">{landing.hero.secondary}</Button></Link>
+          <div className="mt-8">
+            {/* Offers the app instead of a sign-up form to someone already signed in. */}
+            <HeroCta primaryLabel={landing.hero.primary} secondaryLabel={landing.hero.secondary} />
           </div>
         </div>
       </section>
@@ -75,7 +76,9 @@ export default async function HomePage() {
           <p className="mx-auto mt-3 max-w-xl text-muted-foreground">
             {landing.cta.subtitle}
           </p>
-          <Link href="/register" className="mt-6 inline-block"><Button size="lg">{landing.cta.button}</Button></Link>
+          <div className="mt-6">
+            <HeroCta primaryLabel={landing.cta.button} secondaryLabel="Sign in" />
+          </div>
         </div>
       </section>
     </div>

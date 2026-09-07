@@ -42,12 +42,19 @@ export function mapFolder(row: Record<string, unknown>): Folder {
 }
 
 export function mapUserProfile(row: Record<string, unknown>, authUser: { id: string; email: string }): User {
+  // The stored name if there is one, the local part of the address if not. This
+  // used to always take the address, so a name saved from Settings was written to
+  // the database and then never shown anywhere — the save worked and looked like it
+  // had not.
+  const local = authUser.email.split("@")[0] || "User";
+  const displayName = typeof row.display_name === "string" && row.display_name.trim() ? row.display_name.trim() : null;
+
   return {
     id: authUser.id,
     email: authUser.email,
-    name: authUser.email.split("@")[0] ?? "User",
-    username: (authUser.email.split("@")[0] ?? "user").replace(/[^a-z0-9]/gi, ""),
-    avatarUrl: null,
+    name: displayName ?? local,
+    username: local.replace(/[^a-z0-9]/gi, ""),
+    avatarUrl: typeof row.avatar_url === "string" && row.avatar_url ? row.avatar_url : null,
     planId: String(row.plan_id ?? "plan_free"),
     storageUsedBytes: Number(row.storage_used_bytes ?? 0),
     storageQuotaBytes: Number(row.storage_quota_bytes ?? 5 * 1024 * 1024 * 1024),

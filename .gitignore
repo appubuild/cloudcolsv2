@@ -22,3 +22,6 @@ dist/
 *.tsbuildinfo
 # testing
 coverage/
+
+# Supabase CLI scratch
+supabase/.temp/

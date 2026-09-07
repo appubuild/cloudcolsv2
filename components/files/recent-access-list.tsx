@@ -43,7 +43,7 @@ export function RecentAccessList({
               return (
                 <div key={item.id} className="group flex items-center gap-3 py-2.5">
                   {file ? (
-                    <FileThumb fileId={item.id} category={item.category} alt={item.originalFilename} className="h-9 w-9" />
+                    <FileThumb fileId={item.id} category={item.category} alt={item.originalFilename} hasThumbnail={Boolean(item.thumbnailUrl)} className="h-9 w-9" />
                   ) : (
                     <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-indigo-500/10 text-indigo-500">
                       <FolderIcon className="h-5 w-5" />

@@ -1,7 +1,7 @@
 import "server-only";
 import { createAdminClient } from "@/lib/supabase/server";
 import { stripeProvider } from "@/lib/payments/stripe";
-import { PLANS } from "@/lib/payments/types";
+import { requirePlan, defaultPlan } from "@/lib/plans/catalog";
 import { audit } from "@/lib/api/audit";
 
 export const dynamic = "force-dynamic";
@@ -80,13 +80,15 @@ async function applyEvent(event: Awaited<ReturnType<typeof stripeProvider.verify
 
   switch (event.kind) {
     case "payment_succeeded": {
-      const plan = PLANS[event.planId];
+      // Throws if the plan has gone. Better a recorded failure someone can look at
+      // than granting a quota nobody can account for.
+      const plan = await requirePlan(event.planId);
 
       // The quota comes from the server's plan table, never from the event. What
       // Stripe reports is that money arrived, not what it buys.
       const { error: quotaError } = await admin
         .from("user_storage")
-        .update({ plan_id: event.planId, storage_quota_bytes: plan.quota })
+        .update({ plan_id: event.planId, storage_quota_bytes: plan.storageQuotaBytes })
         .eq("user_id", event.userId);
       if (quotaError) throw quotaError;
 
@@ -167,12 +169,13 @@ async function applyEvent(event: Awaited<ReturnType<typeof stripeProvider.verify
         .eq("provider_subscription_id", event.providerSubscriptionId);
 
       if (subscription?.user_id) {
-        // Back to free. Files over the free quota are not deleted — that would be
-        // destroying someone's data over a billing state — but nothing new fits
-        // until they are under it again.
+        // Back to whatever plan is the default. Files over that quota are not
+        // deleted — that would be destroying someone's data over a billing state —
+        // but nothing new fits until they are under it again.
+        const free = await defaultPlan();
         await admin
           .from("user_storage")
-          .update({ plan_id: "plan_free", storage_quota_bytes: PLANS.plan_free.quota })
+          .update({ plan_id: free.id, storage_quota_bytes: free.storageQuotaBytes })
           .eq("user_id", subscription.user_id);
 
         await audit({

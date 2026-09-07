@@ -2,17 +2,10 @@ import { handler, requireUser, ApiError } from "@/lib/api/auth";
 import { createAdminClient } from "@/lib/supabase/server";
 import { audit } from "@/lib/api/audit";
 import { stripeProvider } from "@/lib/payments/stripe";
-import { isPlanId } from "@/lib/payments/types";
+import { requirePlan } from "@/lib/plans/catalog";
 import { serverConfig } from "@/lib/config/server-env";
 
 export const dynamic = "force-dynamic";
-
-const PLANS: Record<string, { quota: number; price: number }> = {
-  plan_free: { quota: 5 * 1024 * 1024 * 1024, price: 0 },
-  plan_plus: { quota: 100 * 1024 * 1024 * 1024, price: 499 },
-  plan_pro: { quota: 200 * 1024 * 1024 * 1024, price: 899 },
-  plan_business: { quota: 1024 * 1024 * 1024 * 1024, price: 1999 },
-};
 
 interface Body {
   planId: string;
@@ -35,16 +28,19 @@ interface Body {
 export const POST = handler(async (req: Request) => {
   const user = await requireUser(req);
   const body = (await req.json()) as Body;
-  const plan = PLANS[body.planId];
-  if (!plan) throw new ApiError("PLAN_NOT_FOUND", 404, "Plan not found.");
+  // From the plans table, so what a plan costs and grants is whatever the admin
+  // panel last said it was. requirePlan throws PLAN_NOT_FOUND for an id that is
+  // not there, which is also the check that keeps a caller from naming its own.
+  const plan = await requirePlan(body.planId);
+  if (!plan.isActive) throw new ApiError("PLAN_UNAVAILABLE", 409, "That plan is not available.");
 
   const admin = createAdminClient();
 
   // Downgrading to free is free. Nothing is charged, so nothing needs confirming.
-  if (plan.price === 0) {
+  if (plan.priceCents === 0) {
     await admin
       .from("user_storage")
-      .update({ plan_id: body.planId, storage_quota_bytes: plan.quota })
+      .update({ plan_id: plan.id, storage_quota_bytes: plan.storageQuotaBytes })
       .eq("user_id", user.id);
 
     await audit({
@@ -68,8 +64,6 @@ export const POST = handler(async (req: Request) => {
     // generic failure the user cannot act on.
     throw new ApiError("PROVIDER_UNAVAILABLE", 503, "Crypto payments are not available yet.");
   }
-
-  if (!isPlanId(body.planId)) throw new ApiError("PLAN_NOT_FOUND", 404, "Plan not found.");
 
   if (!(await stripeProvider.isConfigured())) {
     throw new ApiError(
@@ -107,7 +101,7 @@ export const POST = handler(async (req: Request) => {
   await admin.from("payments").insert({
     user_id: user.id,
     subscription_id: subscription?.id ?? null,
-    amount_cents: plan.price,
+    amount_cents: plan.priceCents,
     currency: "USD",
     provider,
     status: "pending",
@@ -120,7 +114,7 @@ export const POST = handler(async (req: Request) => {
     action: "subscription.checkout_started",
     targetType: "subscription",
     targetId: subscription?.id ?? "",
-    metadata: { planId: body.planId, amount: plan.price, provider, session: checkout.reference },
+    metadata: { planId: plan.id, amount: plan.priceCents, provider, session: checkout.reference },
   });
 
   return { status: "checkout" as const, planId: body.planId, checkoutUrl: checkout.url };

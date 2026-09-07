@@ -11,17 +11,20 @@ import { useAuthStore } from "@/lib/store/auth";
  * never kept across a session. Nothing here proves access — the server checks
  * ownership before it signs anything.
  */
-export function useFileUrl(fileId: string | null, enabled = true) {
+export function useFileUrl(fileId: string | null, enabled = true, variant: "full" | "thumb" = "full") {
   const me = useAuthStore((s) => s.user);
 
   return useQuery({
-    queryKey: ["fileUrl", fileId],
+    // The variant is part of the key: a thumbnail URL and a full-file URL are
+    // different things, and sharing one cache entry between them would hand the
+    // grid a full-size original or the viewer a 512 px thumbnail.
+    queryKey: ["fileUrl", fileId, variant],
     enabled: Boolean(fileId) && Boolean(me) && enabled,
     // The server signs for 10 minutes; refetch well inside that.
     staleTime: 5 * 60_000,
     gcTime: 5 * 60_000,
     // A signed URL that failed will not succeed on a retry with the same inputs.
     retry: 0,
-    queryFn: () => filesRepo.getDownloadUrl(me!.id, fileId!),
+    queryFn: () => filesRepo.getDownloadUrl(me!.id, fileId!, "inline", variant),
   });
 }

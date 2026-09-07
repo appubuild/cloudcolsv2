@@ -24,6 +24,14 @@ interface Detail {
   developerEnabled: boolean;
   createdAt: string | null;
   lastLoginAt: string | null;
+  displayName: string | null;
+  contact: {
+    countryCode: string | null;
+    phoneCountryCode: string | null;
+    phoneNumber: string | null;
+    address: string | null;
+    setupCompletedAt: string | null;
+  };
   storage: {
     quotaBytes: number;
     usedBytes: number;
@@ -213,6 +221,32 @@ export default function AdminUserDetailPage() {
               )}
             </CardContent>
           </Card>
+
+          <Card className="lg:col-span-3">
+            <CardHeader>
+              <CardTitle>Account details</CardTitle>
+              <CardDescription>
+                {detail.contact.setupCompletedAt
+                  ? `Setup completed ${formatDate(detail.contact.setupCompletedAt)}`
+                  : "This account has not finished setup yet."}
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <dl className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                <Field label="Display name" value={detail.displayName} />
+                <Field label="Country" value={detail.contact.countryCode} />
+                <Field
+                  label="Phone"
+                  value={
+                    detail.contact.phoneNumber
+                      ? `${detail.contact.phoneCountryCode ?? ""} ${detail.contact.phoneNumber}`.trim()
+                      : null
+                  }
+                />
+                <Field label="Address" value={detail.contact.address} />
+              </dl>
+            </CardContent>
+          </Card>
         </div>
       )}
 
@@ -368,6 +402,21 @@ export default function AdminUserDetailPage() {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+/**
+ * One account field. An absent value says so rather than rendering an empty gap —
+ * "not provided" and "the screen failed to load it" look identical otherwise.
+ */
+function Field({ label, value }: { label: string; value: string | null }) {
+  return (
+    <div className="min-w-0">
+      <dt className="text-xs text-muted-foreground">{label}</dt>
+      <dd className={value ? "truncate text-sm text-foreground" : "text-sm text-muted-foreground"}>
+        {value || "Not provided"}
+      </dd>
     </div>
   );
 }

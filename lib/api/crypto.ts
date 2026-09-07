@@ -21,6 +21,21 @@ export function safeEqual(a: string, b: string): boolean {
   return ba.length === bb.length && timingSafeEqual(ba, bb);
 }
 
+/**
+ * Constant-time comparison of two arbitrary secrets (not hex-encoded).
+ *
+ * `safeEqual` decodes hex, which silently truncates anything that is not hex —
+ * two different tokens can decode to the same empty buffer. This compares the
+ * bytes as given, and compares hashes rather than the raw values so a length
+ * difference does not leak through timingSafeEqual's length check.
+ */
+export function secretEqual(a: string, b: string): boolean {
+  if (!a || !b) return false;
+  const ha = createHash("sha256").update(a).digest();
+  const hb = createHash("sha256").update(b).digest();
+  return timingSafeEqual(ha, hb);
+}
+
 /** Generate a new API key and return the raw (shown once) + the hash (stored). */
 export function generateApiKey(): { raw: string; prefix: string; hash: string } {
   const raw = `cc_live_${randomBytes(24).toString("base64url")}`;

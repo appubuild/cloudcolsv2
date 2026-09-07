@@ -14,6 +14,12 @@ import { Avatar } from "@/components/layout/avatar";
  */
 export function AccountNav() {
   const user = useAuthStore((s) => s.user);
+  const loading = useAuthStore((s) => s.loading);
+
+  // Nothing until the session is known. Rendering "Sign in" first and swapping it a
+  // moment later is worse than a brief gap: the wrong answer is on screen long
+  // enough to click.
+  if (loading) return <span className="h-9 w-[132px]" aria-hidden />;
 
   if (!user) {
     return (
@@ -31,7 +37,7 @@ export function AccountNav() {
   return (
     <Link href="/app" className="flex items-center gap-2 rounded-full py-1 pl-1 pr-3 hover:bg-surface-2">
       <Avatar name={user.name} url={user.avatarUrl ?? undefined} size={30} />
-      <span className="hidden text-sm font-medium text-foreground sm:block">Open CloudCols</span>
+      <span className="hidden text-sm font-medium text-foreground sm:block">Dashboard</span>
     </Link>
   );
 }

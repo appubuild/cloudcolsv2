@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { generateApiKey, hashSecret, hmacSign, hmacVerify, safeEqual, randomHex } from "../lib/api/crypto";
+import { generateApiKey, hashSecret, hmacSign, hmacVerify, safeEqual, secretEqual, randomHex } from "../lib/api/crypto";
 
 describe("crypto", () => {
   it("hashes are deterministic & not reversible", () => {
@@ -14,6 +14,21 @@ describe("crypto", () => {
     expect(safeEqual(a, hashSecret("y"))).toBe(false);
     expect(safeEqual("abc", "abc")).toBe(true);
     expect(safeEqual("abc", "abcd")).toBe(false);
+  });
+
+  it("secretEqual compares non-hex secrets without truncating them", () => {
+    expect(secretEqual("jobs-token-value", "jobs-token-value")).toBe(true);
+    expect(secretEqual("jobs-token-value", "jobs-token-valuf")).toBe(false);
+    // Different lengths must not throw, and must not match.
+    expect(secretEqual("short", "a-much-longer-token")).toBe(false);
+    // An empty or missing secret never matches — this is what makes the jobs
+    // endpoint fail closed rather than open when nothing is configured.
+    expect(secretEqual("", "")).toBe(false);
+    expect(secretEqual("", "anything")).toBe(false);
+    expect(secretEqual("anything", "")).toBe(false);
+    // safeEqual would have treated both of these as the same empty buffer,
+    // because neither is valid hex. secretEqual must not.
+    expect(secretEqual("zzzz", "wwww")).toBe(false);
   });
 
   it("generateApiKey produces raw/prefix/hash", () => {

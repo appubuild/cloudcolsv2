@@ -2,6 +2,7 @@ import "server-only";
 import { handler, ApiError } from "@/lib/api/auth";
 import { requireAdmin } from "@/lib/api/adminAuth";
 import { createAdminClient } from "@/lib/supabase/server";
+import { audit } from "@/lib/api/audit";
 
 export const dynamic = "force-dynamic";
 
@@ -77,6 +78,18 @@ export const GET = handler(async (req: Request, ctx?: { params: Promise<Params> 
     createdAt: profile.created_at ? String(profile.created_at) : null,
     lastLoginAt: profile.last_login_at ? String(profile.last_login_at) : null,
 
+    // Collected by the post-registration setup flow (migration 0014). An account
+    // that has not finished setup is a normal state, not an error — the screen
+    // needs to be able to tell the two apart, so setupCompletedAt is reported
+    // rather than inferred from whether the fields happen to be filled.
+    contact: {
+      countryCode: profile.country_code ? String(profile.country_code) : null,
+      phoneCountryCode: profile.phone_country_code ? String(profile.phone_country_code) : null,
+      phoneNumber: profile.phone_number ? String(profile.phone_number) : null,
+      address: profile.address ? String(profile.address) : null,
+      setupCompletedAt: profile.setup_completed_at ? String(profile.setup_completed_at) : null,
+    },
+
     storage: {
       quotaBytes: Number(profile.storage_quota_bytes ?? 0),
       usedBytes: recordedUsed,
@@ -113,4 +126,73 @@ export const GET = handler(async (req: Request, ctx?: { params: Promise<Params> 
       createdAt: String(p.created_at),
     })),
   };
+});
+
+interface PatchBody {
+  action: "suspend" | "restore";
+  reason?: string;
+}
+
+/**
+ * Suspend an account, or restore it.
+ *
+ * The Users screen has had a Suspend button since the beginning. It prompted for a
+ * reason, then called `authRepo.updateProfile(id, { status: "suspended" })` — the
+ * *end user's* profile repository, which PATCHes /api/profile with whatever session
+ * the browser holds and accepts only a name and an avatar. So it changed nothing,
+ * ignored the id it was given, discarded the reason, showed "User suspended" and
+ * reloaded the page. Nobody was ever suspended.
+ *
+ * Suspension has to mean something on the server, so `requireUser` refuses a
+ * suspended account. Sign-in still works — the person can see that their account is
+ * suspended rather than being told their password is wrong — but nothing they do
+ * reaches their files.
+ *
+ * A reason is required and recorded. super_admin: this takes someone's account away.
+ */
+export const PATCH = handler(async (req: Request, ctx?: { params: Promise<Params> }) => {
+  const staff = await requireAdmin(req, "super_admin");
+  const { id } = (await ctx?.params) ?? { id: "" };
+  const body = (await req.json()) as PatchBody;
+
+  if (body.action !== "suspend" && body.action !== "restore") {
+    throw new ApiError("INVALID_INPUT", 400, 'action must be "suspend" or "restore".');
+  }
+  const reason = String(body.reason ?? "").trim();
+  if (!reason || reason.length < 3) {
+    throw new ApiError("REASON_REQUIRED", 400, "A reason is required, and is written to the audit log.");
+  }
+
+  const client = createAdminClient();
+  const { data: existing } = await client
+    .from("user_storage")
+    .select("user_id, status")
+    .eq("user_id", id)
+    .maybeSingle();
+  if (!existing) throw new ApiError("USER_NOT_FOUND", 404, "No such account.");
+
+  const suspending = body.action === "suspend";
+  const next = suspending ? "suspended" : "active";
+  if (String(existing.status) === next) {
+    throw new ApiError("NO_CHANGE", 409, `That account is already ${next}.`);
+  }
+
+  const { data: updated, error } = await client
+    .from("user_storage")
+    .update({ status: next })
+    .eq("user_id", id)
+    .select("user_id, status")
+    .single();
+  if (error) throw new ApiError("UPDATE_FAILED", 400, error.message);
+
+  await audit({
+    actorId: staff.id,
+    actorType: "admin",
+    action: suspending ? "admin.user_suspended" : "admin.user_restored",
+    targetType: "user",
+    targetId: id,
+    metadata: { reason, from: String(existing.status), to: next, adminEmail: staff.email },
+  });
+
+  return { id: String(updated.user_id), status: String(updated.status) };
 });

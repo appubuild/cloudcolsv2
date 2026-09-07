@@ -2,7 +2,7 @@
   "name": "cloudcols",
   "version": "0.1.0",
   "private": true,
-  "description": "CloudCols — cloud storage & media platform (Phase 1: mock-data web app).",
+  "description": "CloudCols \u2014 cloud storage & media platform (Phase 1: mock-data web app).",
   "scripts": {
     "dev": "next dev",
     "build": "next build",
@@ -12,11 +12,16 @@
     "test": "vitest run",
     "preview": "opennextjs-cloudflare build && opennextjs-cloudflare preview",
     "deploy": "opennextjs-cloudflare build && wrangler deploy",
-    "e2e": "node scripts/e2e.mjs .dev.vars"
+    "e2e": "node scripts/e2e.mjs .dev.vars",
+    "authz": "node scripts/authz.mjs .dev.vars"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.109.0",
     "@tanstack/react-query": "^5.51.0",
+    "@tiptap/extension-link": "^3.31.3",
+    "@tiptap/pm": "^3.31.3",
+    "@tiptap/react": "^3.31.3",
+    "@tiptap/starter-kit": "^3.31.3",
     "clsx": "^2.1.1",
     "lucide-react": "^0.427.0",
     "next": "^16.3.3",

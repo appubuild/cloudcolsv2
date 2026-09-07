@@ -15,6 +15,8 @@ import { useAuthStore } from "@/lib/store/auth";
 import { toast } from "@/lib/store/toast";
 import { filesRepo } from "@/lib/repositories";
 import { refreshFileViews } from "@/lib/query-client";
+import { makeThumbnail } from "./thumbnailer";
+import { apiClient } from "@/lib/api/client";
 
 const CHUNK_DURATION_MS = 150; // simulated per-step elapsed time (mock mode)
 const PART_SIZE = 10 * 1024 * 1024; // mirrors the ticket's partSizeBytes
@@ -75,11 +77,22 @@ async function uploadTask(task: UploadTask): Promise<void> {
       : await createPendingFileMock({ id: me.id }, task, ticket);
     store.update(task.id, { uploadId: ticket.uploadId, fileId, status: "uploading" });
 
-    // 2) Stream bytes directly to object storage.
-    await transferBytes(task, ticket.presignedUrl);
+    // 2) Stream bytes directly to object storage — in parts when the server said so.
+    const mp = ticket as unknown as { multipart?: boolean; multipartUploadId?: string | null; partSizeBytes?: number };
+    if (mp.multipart && mp.multipartUploadId && task.file) {
+      await transferMultipart(task, fileId, mp.multipartUploadId, mp.partSizeBytes ?? PART_SIZE);
+    } else {
+      await transferBytes(task, ticket.presignedUrl);
+    }
 
     // 3) Confirm: server verifies object + size, sets status ready, syncs quota.
     await filesRepo.confirmUpload(me.id, ticket.uploadId, fileId);
+
+    // 4) A small version, made here because a Worker cannot resize anything. After
+    //    the confirm, never before: the upload is what the user asked for, and a
+    //    thumbnail that fails must not delay or endanger it.
+    await attachThumbnail(fileId, task.file);
+
     store.update(task.id, { status: "success", progress: 100 });
     // The file exists now, so every view that lists files is stale. Without this
     // the upload only appeared after a manual reload.
@@ -260,4 +273,182 @@ async function createPendingFileMock(me: { id: string }, task: UploadTask, ticke
   } as never);
   saveDb();
   return fileId;
+}
+
+/**
+ * Generates a thumbnail and stores it alongside the file.
+ *
+ * Entirely best-effort. Every failure path returns quietly: the file is already
+ * uploaded and listed, and the grid falls back to a category icon. Reporting a
+ * thumbnail failure to someone who asked to upload a photo would be noise about
+ * something they did not ask for.
+ *
+ * Without this the grid fetched the full original to draw every tile — an 877 KB
+ * photo downloaded to fill a 200 px card, for every image in the folder, on every
+ * visit. That is object-storage egress on the one path the architecture exists to
+ * keep cheap.
+ */
+async function attachThumbnail(fileId: string, file: File | undefined): Promise<void> {
+  if (!file) return;
+  if (!file.type.startsWith("image/") && !file.type.startsWith("video/")) return;
+
+  try {
+    const blob = await makeThumbnail(file);
+    if (!blob) return;
+
+    // The server decides the key from the file's own object key; nothing about the
+    // destination comes from here.
+    const ticket = await apiClient.post<{ presignedUrl: string; maxBytes: number }>(
+      `/api/files/${fileId}/thumbnail`,
+      {},
+    );
+    if (blob.size > ticket.maxBytes) return;
+
+    const res = await fetch(ticket.presignedUrl, { method: "PUT", body: blob });
+    if (!res.ok) return;
+
+    // Confirmed separately, so a thumbnail_url is only ever recorded for an object
+    // that is genuinely there — the failure the old background job made routine.
+    await apiClient.put(`/api/files/${fileId}/thumbnail`, {});
+    refreshFileViews();
+  } catch {
+    // Thumbnails are an optimisation. Nothing here is worth failing an upload over.
+  }
+}
+
+/**
+ * Uploads a large file in parts.
+ *
+ * A single PUT of 3 GB is one request that either finishes or does not, and on a
+ * mobile connection it very often does not — losing everything at 90%. Parts fail and
+ * retry on their own, and the bytes still go straight from here to storage: the three
+ * control calls carry nothing but ids and ETags.
+ *
+ * Sequential rather than parallel. Parallel parts finish sooner on a fast link and
+ * make progress meaningless, multiply the memory held at once, and on a slow link
+ * simply divide the same bandwidth. One at a time is the honest default; concurrency
+ * is a tuning decision to make with real numbers rather than by assumption.
+ */
+async function transferMultipart(
+  task: UploadTask,
+  fileId: string,
+  uploadId: string,
+  partSize: number,
+): Promise<void> {
+  const file = task.file!;
+  const total = file.size;
+  const partCount = Math.max(1, Math.ceil(total / partSize));
+  const completed: { partNumber: number; etag: string }[] = [];
+
+  // Signed in batches: a long upload would outlive URLs minted an hour ago, and
+  // signing every part up front wastes work on parts an interrupted upload never
+  // reaches.
+  const BATCH = 20;
+  let uploadedBytes = 0;
+  const startedAt = Date.now();
+
+  for (let start = 0; start < partCount; start += BATCH) {
+    if (cancelled(task.id)) throw Object.assign(new Error("Upload cancelled."), { code: "CANCELLED" });
+
+    const numbers: number[] = [];
+    for (let n = start + 1; n <= Math.min(start + BATCH, partCount); n += 1) numbers.push(n);
+
+    const { parts } = await apiClient.post<{ parts: { partNumber: number; url: string }[] }>(
+      `/api/files/${fileId}/parts`,
+      { uploadId, partNumbers: numbers },
+    );
+
+    for (const part of parts) {
+      if (cancelled(task.id)) throw Object.assign(new Error("Upload cancelled."), { code: "CANCELLED" });
+
+      const from = (part.partNumber - 1) * partSize;
+      const blob = file.slice(from, Math.min(from + partSize, total));
+      const etag = await putPart(part.url, blob, task.id, uploadedBytes, total, startedAt);
+      completed.push({ partNumber: part.partNumber, etag });
+      uploadedBytes += blob.size;
+      ship(task.id, Math.round((uploadedBytes / total) * 100), speedSince(startedAt, uploadedBytes));
+    }
+  }
+
+  // Assemble. Until this succeeds the object does not exist, whatever landed.
+  await apiClient.put(`/api/files/${fileId}/parts`, { uploadId, parts: completed });
+}
+
+function cancelled(taskId: string): boolean {
+  return useUploadStore.getState().tasks.find((t) => t.id === taskId)?.status === "cancelled";
+}
+
+function speedSince(startedAt: number, bytes: number): number {
+  const elapsed = Math.max(0.001, (Date.now() - startedAt) / 1000);
+  return Math.round(bytes / elapsed);
+}
+
+/**
+ * PUTs one part and returns its ETag.
+ *
+ * The ETag is what identifies the part at assembly time; without it storage cannot
+ * put the object back together. It is a normal response header, but a cross-origin
+ * one — the bucket's CORS rules have to expose ETag or this reads null and the whole
+ * upload fails at the last step, which is a confusing place to discover a
+ * configuration problem. Hence the explicit error.
+ */
+async function putPart(
+  url: string,
+  blob: Blob,
+  taskId: string,
+  uploadedBefore: number,
+  total: number,
+  startedAt: number,
+): Promise<string> {
+  return new Promise<string>((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("PUT", url, true);
+
+    xhr.upload.onprogress = (e) => {
+      if (!e.lengthComputable) return;
+      const done = uploadedBefore + e.loaded;
+      ship(taskId, Math.round((done / total) * 100), speedSince(startedAt, done));
+    };
+
+    xhr.onload = () => {
+      if (xhr.status < 200 || xhr.status >= 300) {
+        reject(
+          Object.assign(new Error(`Storage rejected a part (HTTP ${xhr.status}).`), {
+            code: "STORAGE_REJECTED",
+            status: xhr.status,
+          }),
+        );
+        return;
+      }
+      const etag = xhr.getResponseHeader("ETag");
+      if (!etag) {
+        reject(
+          Object.assign(
+            new Error("Storage did not return an ETag for a part. The bucket's CORS rules must expose the ETag header."),
+            { code: "NO_ETAG" },
+          ),
+        );
+        return;
+      }
+      resolve(etag);
+    };
+
+    xhr.onerror = () =>
+      reject(
+        Object.assign(new Error("Could not reach storage. Check your connection, or the bucket's CORS rules."), {
+          code: "NETWORK",
+        }),
+      );
+    xhr.onabort = () => reject(Object.assign(new Error("Upload cancelled."), { code: "CANCELLED" }));
+
+    const poll = setInterval(() => {
+      if (cancelled(taskId)) {
+        clearInterval(poll);
+        xhr.abort();
+      }
+    }, 400);
+    xhr.onloadend = () => clearInterval(poll);
+
+    xhr.send(blob);
+  });
 }

@@ -23,6 +23,7 @@ interface Analytics {
     byPlan: { planId: string; accounts: number; bytes: number }[];
   };
   largestFiles: { ownerId: string; filename: string; category: string; sizeBytes: number }[];
+  recentUploads: { id: string; ownerId: string; filename: string; category: string; sizeBytes: number; createdAt: string }[];
   topUsers: { userId: string; bytes: number }[];
   payments: {
     succeededCount: number;
@@ -152,6 +153,39 @@ export function AnalyticsPanel() {
                 </div>
               ))}
             </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Recent uploads</CardTitle>
+            <CardDescription>The last thing each account put in</CardDescription>
+          </CardHeader>
+          <CardContent>
+            {data.recentUploads.length === 0 ? (
+              <p className="text-sm text-muted-foreground">Nothing uploaded yet.</p>
+            ) : (
+              <div className="space-y-1.5">
+                {data.recentUploads.slice(0, 6).map((f) => (
+                  <div key={f.id} className="flex items-center gap-2.5">
+                    <CategoryThumb category={f.category as FileCategory} className="h-7 w-7 shrink-0" />
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-xs font-medium text-foreground">{f.filename}</p>
+                      <p className="text-xs text-muted-foreground">
+                        <Link href={`/admin/users/${f.ownerId}`} className="font-mono text-primary hover:underline">
+                          {f.ownerId.slice(0, 8)}…
+                        </Link>
+                        {" · "}
+                        {formatBytes(f.sizeBytes)}
+                      </p>
+                    </div>
+                    <span className="shrink-0 text-xs text-muted-foreground">
+                      {new Date(f.createdAt).toLocaleDateString()}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
           </CardContent>
         </Card>
 

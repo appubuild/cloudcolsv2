@@ -7,6 +7,7 @@ import "server-only";
 import { createAdminClient } from "@/lib/supabase/server";
 import { email } from "@/lib/email";
 import { audit } from "@/lib/api/audit";
+import { getSettings } from "@/lib/settings/system";
 
 export interface InactivityPolicy {
   inactiveDays: number;
@@ -15,21 +16,30 @@ export interface InactivityPolicy {
   graceDays: number;
 }
 
-export function policy(): InactivityPolicy {
-  const n = (k: string, dflt: number) => {
-    const v = Number(process.env[k] ?? dflt);
-    return Number.isFinite(v) && v > 0 ? v : dflt;
-  };
+/**
+ * The inactivity thresholds, from system_settings.
+ *
+ * These were environment variables read through process.env, which on Workers does
+ * not see the binding — so this always returned its hardcoded defaults, and the
+ * documented INACTIVITY_* variables did nothing at all.
+ *
+ * The stored values are also far more cautious than those defaults were: a year of
+ * inactivity before the first warning rather than 90 days. This job ends in
+ * deleting somebody's account, and where the two sources disagreed the careful one
+ * is the one worth keeping.
+ */
+export async function policy(): Promise<InactivityPolicy> {
+  const s = await getSettings();
   return {
-    inactiveDays: n("INACTIVITY_DAYS", 90),
-    warningDays: n("INACTIVITY_WARNING_DAYS", 30),
-    finalWarningDays: n("INACTIVITY_FINAL_WARNING_DAYS", 15),
-    graceDays: n("INACTIVITY_GRACE_DAYS", 7),
+    inactiveDays: s.inactivity_warn_days,
+    warningDays: s.inactivity_warn_days,
+    finalWarningDays: s.inactivity_final_warn_days,
+    graceDays: s.inactivity_grace_days,
   };
 }
 
 export async function runInactivityPolicy(data?: { dryRun?: boolean }): Promise<string> {
-  const p = policy();
+  const p = await policy();
   const admin = createAdminClient();
   const cutoff = Date.now() - p.inactiveDays * 86400000;
 

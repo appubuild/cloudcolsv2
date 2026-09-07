@@ -281,7 +281,17 @@ export type Theme = "light" | "dark";
 export interface UploadTicket {
   uploadId: string; // id the client echoes back when confirming the upload
   objectKey: string; // opaque, server-generated storage key
-  presignedUrl: string; // direct PUT destination (B2 / S3)
-  partSizeBytes: number; // suggested multipart part size
+  presignedUrl: string; // direct PUT destination for a single-shot upload; empty when multipart
+  partSizeBytes: number; // how big each part is
   expiresIn: number; // seconds until the grant is invalid
+  fileId?: string; // the row the upload belongs to
+  /** Whether the server started a multipart upload rather than issuing one PUT. */
+  multipart?: boolean;
+  partCount?: number;
+  /**
+   * Storage's id for the multipart upload, echoed back when asking for part URLs and
+   * when assembling. Not a capability on its own — part URLs are only issued for a
+   * file the caller owns, against a key the server derives from that file's row.
+   */
+  multipartUploadId?: string | null;
 }

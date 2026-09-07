@@ -3,6 +3,7 @@ import { limited, ApiError, DEFAULT_LIMITS } from "@/lib/api/auth";
 import { createAdminClient } from "@/lib/supabase/server";
 import { ensureProfile } from "@/lib/api/profiles";
 import { email } from "@/lib/email";
+import { getSetting } from "@/lib/settings/system";
 
 export const dynamic = "force-dynamic";
 
@@ -13,6 +14,13 @@ interface SignupBody {
 }
 
 export const POST = limited(async (req: Request) => {
+  // Checked before anything is validated or created. An admin who has closed
+  // registration has closed it, and the answer should not depend on whether the
+  // form happened to be filled in correctly.
+  if (!(await getSetting("registration_enabled"))) {
+    throw new ApiError("REGISTRATION_CLOSED", 403, "New registrations are closed right now.");
+  }
+
   const body = (await req.json()) as SignupBody;
   if (!body.name?.trim()) throw new ApiError("INVALID_INPUT", 400, "Name is required.");
   if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(body.email ?? ""))

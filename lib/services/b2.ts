@@ -182,3 +182,164 @@ export function publicUrl(objectKey: string): string {
   }
   return `${originOf(serverEnv.b2.endpoint)}/${serverEnv.b2.bucket}/${objectKey}`;
 }
+
+// ---------------------------------------------------------------------------
+// Multipart upload
+// ---------------------------------------------------------------------------
+//
+// A single presigned PUT is one HTTP request that either finishes or does not. For a
+// 3 GB file — the size this product advertises — that is not a feature: a dropped
+// connection at 90% means starting again from zero, and mobile connections drop.
+//
+// Multipart splits the object into independently uploadable parts. A failed part is
+// retried on its own, an interrupted upload resumes from the parts that already
+// landed, and the parts go straight from the browser to storage exactly as before.
+// Only three small control calls — create, complete, abort — involve our compute, and
+// none of them carries file bytes.
+
+/** How big each part is. */
+export const MULTIPART_PART_SIZE = 16 * 1024 * 1024;
+
+/**
+ * Above this, an upload is split.
+ *
+ * Below it the overhead is not worth it: a single PUT is one round trip, and
+ * multipart adds a create, a complete, and a presign per part.
+ */
+export const MULTIPART_THRESHOLD = 32 * 1024 * 1024;
+
+/** S3 allows at most this many parts per object. */
+export const MULTIPART_MAX_PARTS = 10_000;
+
+/**
+ * Pull a single XML tag's text out of a response. Enough for these three calls.
+ *
+ * Deliberately not a regex. This was built with `new RegExp` from a template literal,
+ * where `\s` and `\S` are not escape sequences the literal recognises — so it dropped
+ * the backslashes and the character class became `[sS]`, matching only the letters s
+ * and S. The pattern compiled, ran, and never matched an upload id. Storage was
+ * returning a perfectly good InitiateMultipartUploadResult and every large upload
+ * failed with "storage did not return an upload id".
+ *
+ * Two string searches have no escaping to get wrong.
+ */
+export function xmlTag(body: string, tag: string): string | null {
+  const open = `<${tag}>`;
+  const close = `</${tag}>`;
+  const start = body.indexOf(open);
+  if (start === -1) return null;
+  const end = body.indexOf(close, start + open.length);
+  if (end === -1) return null;
+  return body.slice(start + open.length, end).trim();
+}
+
+/** Begin a multipart upload. Returns the id every subsequent call needs. */
+export async function createMultipartUpload(
+  objectKey: string,
+  contentType?: string,
+): Promise<{ uploadId: string }> {
+  const { sig, endpoint, bucket } = config();
+  const path = `/${bucket}/${objectKey}`;
+  const query = { uploads: "" };
+
+  const headers = await signRequest(sig, { method: "POST", endpoint, path, query, body: "" });
+  const res = await fetch(`${objectUrl(endpoint, bucket, objectKey)}?uploads=`, {
+    method: "POST",
+    headers: { ...headers, ...(contentType ? { "content-type": contentType } : {}) },
+  });
+
+  const body = await res.text();
+  if (!res.ok) throw new Error(`Storage refused to start the upload (HTTP ${res.status}). ${body.slice(0, 200)}`);
+
+  const uploadId = xmlTag(body, "UploadId");
+  // The body matters when this fails: "no upload id" alone gives nobody anything to
+  // work with, and storage explains itself in the XML it just sent.
+  if (!uploadId) throw new Error(`Storage did not return an upload id. ${body.slice(0, 300)}`);
+  return { uploadId };
+}
+
+/**
+ * A presigned PUT for one part.
+ *
+ * Part numbers are 1-based. The number and the upload id are bound into the
+ * signature, so a URL for part 3 cannot be replayed as part 4.
+ */
+export async function presignUploadPart(
+  objectKey: string,
+  uploadId: string,
+  partNumber: number,
+  expiresIn = 3600,
+): Promise<string> {
+  const { sig, endpoint, bucket } = config();
+  return presignUrl(sig, {
+    method: "PUT",
+    endpoint,
+    bucket,
+    key: objectKey,
+    expiresIn,
+    query: { partNumber: String(partNumber), uploadId },
+  });
+}
+
+/**
+ * Assemble the parts into the finished object.
+ *
+ * The parts must be listed in ascending order with the ETag storage returned for
+ * each; out of order, S3 rejects the whole thing.
+ */
+export async function completeMultipartUpload(
+  objectKey: string,
+  uploadId: string,
+  parts: { partNumber: number; etag: string }[],
+): Promise<void> {
+  const { sig, endpoint, bucket } = config();
+  const ordered = [...parts].sort((a, b) => a.partNumber - b.partNumber);
+
+  const body =
+    "<CompleteMultipartUpload>" +
+    ordered
+      .map((p) => {
+        // ETags come back quoted, and some clients strip the quotes. Normalise, then
+        // quote exactly once — an unquoted ETag is rejected.
+        const etag = p.etag.replace(/^"+|"+$/g, "");
+        return `<Part><PartNumber>${p.partNumber}</PartNumber><ETag>&quot;${etag}&quot;</ETag></Part>`;
+      })
+      .join("") +
+    "</CompleteMultipartUpload>";
+
+  const path = `/${bucket}/${objectKey}`;
+  const query = { uploadId };
+  const headers = await signRequest(sig, { method: "POST", endpoint, path, query, body });
+
+  const res = await fetch(`${objectUrl(endpoint, bucket, objectKey)}?uploadId=${encodeURIComponent(uploadId)}`, {
+    method: "POST",
+    headers: { ...headers, "content-type": "application/xml" },
+    body,
+  });
+
+  const text = await res.text();
+  // S3 can answer 200 and still describe a failure in the body, because the response
+  // is streamed while the parts are being assembled. Checking only the status here
+  // would record a file that was never finished.
+  if (!res.ok || text.includes("<Error>")) {
+    throw new Error(`Storage could not assemble the upload. ${text.slice(0, 200)}`);
+  }
+}
+
+/** Give up on a multipart upload, so storage stops holding its parts. */
+export async function abortMultipartUpload(objectKey: string, uploadId: string): Promise<void> {
+  try {
+    const { sig, endpoint, bucket } = config();
+    const path = `/${bucket}/${objectKey}`;
+    const query = { uploadId };
+    const headers = await signRequest(sig, { method: "DELETE", endpoint, path, query });
+    await fetch(`${objectUrl(endpoint, bucket, objectKey)}?uploadId=${encodeURIComponent(uploadId)}`, {
+      method: "DELETE",
+      headers,
+    });
+  } catch (e) {
+    // Best effort. Unfinished parts are cleaned up by a bucket lifecycle rule; a
+    // failure here must not stop the caller reporting the real problem.
+    console.error("[b2] abortMultipartUpload failed", objectKey, (e as Error).message);
+  }
+}

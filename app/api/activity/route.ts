@@ -22,7 +22,7 @@ export const GET = handler(async (req: Request) => {
     .from("file_activity")
     .select(
       "id, action, occurred_at, file_id, folder_id, " +
-        "files(original_filename, category, size_bytes, trashed_at, folder_id), " +
+        "files(original_filename, category, size_bytes, trashed_at, folder_id, thumbnail_url), " +
         "folders(name, icon, trashed_at)",
     )
     .eq("user_id", user.id)
@@ -40,6 +40,7 @@ export const GET = handler(async (req: Request) => {
       const file = row.files as {
         original_filename?: string;
         category?: string;
+        thumbnail_url?: string | null;
         size_bytes?: number;
         trashed_at?: string | null;
         folder_id?: string | null;
@@ -58,6 +59,8 @@ export const GET = handler(async (req: Request) => {
         targetId: String(row.file_id ?? row.folder_id),
         name: file?.original_filename ?? folder?.name ?? "Untitled",
         category: file?.category ?? null,
+        // So the activity list can draw the derivative instead of the whole file.
+        thumbnailUrl: file?.thumbnail_url ?? null,
         sizeBytes: file?.size_bytes ?? null,
         icon: folder?.icon ?? null,
         folderId: file?.folder_id ?? null,

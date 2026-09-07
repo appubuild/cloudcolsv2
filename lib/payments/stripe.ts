@@ -1,7 +1,8 @@
 import "server-only";
 import Stripe from "stripe";
 import { readSettings, readSecrets } from "./settings";
-import { PLANS, isPlanId, type CheckoutRequest, type CheckoutResult, type PaymentEvent, type PaymentProvider } from "./types";
+import type { CheckoutRequest, CheckoutResult, PaymentEvent, PaymentProvider } from "./types";
+import { getPlan, requirePlan } from "@/lib/plans/catalog";
 
 /**
  * Stripe, on Cloudflare Workers.
@@ -54,7 +55,7 @@ export const stripeProvider: PaymentProvider = {
     if (!stripe) throw new Error("Stripe is not configured.");
 
     const settings = await readSettings("stripe");
-    const plan = PLANS[request.planId];
+    const plan = await requirePlan(request.planId);
     const priceId = settings.publicConfig.priceIds?.[request.planId];
 
     const session = await stripe.checkout.sessions.create({
@@ -96,6 +97,22 @@ export const stripeProvider: PaymentProvider = {
     return { url: session.url, reference: session.id };
   },
 
+  async cancelSubscription(providerSubscriptionId: string): Promise<{ endsAt: string | null }> {
+    const stripe = await client();
+    if (!stripe) throw new Error("Stripe is not configured.");
+
+    // cancel_at_period_end, not delete: the customer has paid through to a date
+    // and is entitled to the storage until then. Stripe stops billing and sends
+    // customer.subscription.deleted when the period runs out, which is where the
+    // plan is actually lowered.
+    const subscription = await stripe.subscriptions.update(providerSubscriptionId, {
+      cancel_at_period_end: true,
+    });
+
+    const endsAt = (subscription as unknown as { current_period_end?: number }).current_period_end;
+    return { endsAt: endsAt ? new Date(endsAt * 1000).toISOString() : null };
+  },
+
   async verifyWebhook(rawBody: string, signature: string): Promise<PaymentEvent> {
     const { webhookSecret } = await readSecrets("stripe");
     if (!webhookSecret) throw new Error("Stripe webhook secret is not configured.");
@@ -122,7 +139,11 @@ export const stripeProvider: PaymentProvider = {
 
         const userId = session.metadata?.userId ?? null;
         const planId = session.metadata?.planId ?? "";
-        if (!userId || !isPlanId(planId)) {
+        // The plan has to still exist. An event naming one an admin has deleted is
+        // not something to guess at, so it is recorded and ignored rather than
+        // granting whatever seems closest.
+        const plan = planId ? await getPlan(planId) : null;
+        if (!userId || !plan) {
           return { kind: "ignored", eventId: event.id, type: `${event.type}:unattributable` };
         }
 
@@ -131,7 +152,7 @@ export const stripeProvider: PaymentProvider = {
           eventId: event.id,
           userId,
           planId,
-          amountCents: session.amount_total ?? PLANS[planId].priceCents,
+          amountCents: session.amount_total ?? plan.priceCents,
           currency: (session.currency ?? "usd").toUpperCase(),
           providerPaymentId: String(session.payment_intent ?? session.id),
           providerSubscriptionId: session.subscription ? String(session.subscription) : null,
@@ -146,7 +167,7 @@ export const stripeProvider: PaymentProvider = {
         const subscriptionId = invoice.subscription ? String(invoice.subscription) : null;
         const userId = (invoice.metadata?.userId as string | undefined) ?? null;
         const planId = (invoice.metadata?.planId as string | undefined) ?? "";
-        if (!userId || !isPlanId(planId) || !subscriptionId) {
+        if (!userId || !subscriptionId || !planId || !(await getPlan(planId))) {
           return { kind: "ignored", eventId: event.id, type: `${event.type}:unattributable` };
         }
         return {

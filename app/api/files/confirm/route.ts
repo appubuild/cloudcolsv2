@@ -6,6 +6,7 @@ import { mapFile } from "@/lib/api/mappers";
 import { deriveCategory } from "@/lib/storage/categories";
 import { validateMime } from "@/lib/services/mime";
 import { deliver } from "@/lib/jobs/webhookDelivery";
+import { runAfterResponse } from "@/lib/api/background";
 import { recordActivity } from "@/lib/api/activity";
 
 export const dynamic = "force-dynamic";
@@ -81,7 +82,21 @@ export const POST = handler(async (req: Request) => {
 
   await recordActivity(user.id, { fileId: body.fileId }, "uploaded");
 
-  // Dispatch async webhook + thumbnail generation (never blocks the response).
-  deliver({ id: String((final ?? updated).id), type: "file.created", fileId: String((final ?? updated).id), objectKey: String((final ?? updated).object_key), ownerId: user.id, timestamp: new Date().toISOString() }, user.id).catch(() => {});
+  // Dispatch the webhook (never blocks the response). The thumbnail this comment
+  // used to also claim is made by the browser, after this call returns.
+  runAfterResponse(
+    deliver(
+      {
+        id: String((final ?? updated).id),
+        type: "file.created",
+        fileId: String((final ?? updated).id),
+        objectKey: String((final ?? updated).object_key),
+        ownerId: user.id,
+        timestamp: new Date().toISOString(),
+      },
+      user.id,
+    ),
+    "webhook file.created",
+  );
   return mapped;
 });

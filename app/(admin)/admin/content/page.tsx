@@ -3,9 +3,6 @@
 import { useState } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Tabs } from "@/components/ui/tabs";
-import { Badge } from "@/components/ui/misc";
-import { Button } from "@/components/ui/button";
-import { toast } from "@/lib/store/toast";
 import { LandingEditor } from "@/components/admin/landing-editor";
 
 const faqs = [
@@ -35,7 +32,15 @@ export default function AdminContentPage() {
                 <p className="mt-1 text-sm text-muted-foreground">{f.a}</p>
               </div>
             ))}
-            <Button variant="secondary" size="sm" onClick={() => toast.success("FAQ updated")}>Save changes</Button>
+            {/* There was a "Save changes" button here that called toast.success and
+                made no request. The FAQ is not editable yet — the landing tab is the
+                part of site content that is actually wired to the database — so this
+                says so rather than offering a control that does nothing. */}
+            <p className="rounded-md bg-surface-2 p-3 text-xs text-muted-foreground">
+              These answers are still compiled into the marketing pages. Editing them from here needs
+              the FAQ moving into <code className="font-mono">site_content</code>, alongside the landing
+              copy on the next tab.
+            </p>
           </CardContent>
         </Card>
       )}
@@ -45,16 +50,15 @@ export default function AdminContentPage() {
       {tab === "announcements" && (
         <Card>
           <CardContent className="space-y-2">
-            {[
-              { title: "Maintenance window", status: "active" },
-              { title: "New: Developer API", status: "active" },
-              { title: "Summer promo", status: "scheduled" },
-            ].map((a) => (
-              <div key={a.title} className="flex items-center justify-between">
-                <span className="text-sm text-foreground">{a.title}</span>
-                <Badge tone={a.status === "active" ? "success" : "warning"}>{a.status}</Badge>
-              </div>
-            ))}
+            {/* This listed three invented announcements — "Maintenance window",
+                "Summer promo" — with statuses, on a screen an operator would read as
+                a record of what is currently being shown to customers. Nothing
+                stores or displays announcements. */}
+            <p className="text-sm text-foreground">Announcements are not built yet.</p>
+            <p className="text-xs text-muted-foreground">
+              Nothing stores them and no surface displays them. To take the product down for
+              maintenance, use the switch on System settings — that one is real.
+            </p>
           </CardContent>
         </Card>
       )}

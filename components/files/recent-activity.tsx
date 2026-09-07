@@ -20,6 +20,7 @@ interface Activity {
   category: string | null;
   sizeBytes: number | null;
   icon: string | null;
+  thumbnailUrl: string | null;
 }
 
 /**
@@ -91,6 +92,7 @@ export function RecentActivity({ limit = 8 }: { limit?: number }) {
               fileId={item.targetId}
               category={(item.category ?? "other") as FileCategory}
               alt={item.name}
+              hasThumbnail={Boolean(item.thumbnailUrl)}
               className="h-9 w-9"
             />
           )}

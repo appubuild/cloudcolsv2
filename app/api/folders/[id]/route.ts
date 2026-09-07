@@ -59,13 +59,16 @@ export const PATCH = handler(async (req: Request, ctx?: { params: Promise<Params
     }
   }
 
+  // maybeSingle: `single()` treats "no rows" as PGRST116, which this rethrows — so an
+  // ownership miss answered 500 with a Postgres error code, and the 404 below could
+  // never run.
   const { data, error } = await admin
     .from("folders")
     .update(updates)
     .eq("id", id)
     .eq("owner_id", user.id)
     .select("*")
-    .single();
+    .maybeSingle();
   if (error) throw error;
   if (!data) throw new ApiError("FOLDER_NOT_FOUND", 404, "Folder not found.");
   return mapFolder(data as Record<string, unknown>);
@@ -81,7 +84,7 @@ export const DELETE = handler(async (req: Request, ctx?: { params: Promise<Param
     .eq("id", id)
     .eq("owner_id", user.id)
     .select("*")
-    .single();
+    .maybeSingle();
   if (error) throw error;
   if (!data) throw new ApiError("FOLDER_NOT_FOUND", 404, "Folder not found.");
   return mapFolder(data as Record<string, unknown>);

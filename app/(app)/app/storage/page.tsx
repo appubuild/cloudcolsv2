@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { AdSlot } from "@/components/ads/ad-slot";
 import { useMe, usePlans, useUsageSummary } from "@/lib/hooks/queries";
 import { formatBytes } from "@/lib/utils";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -133,6 +134,8 @@ export default function StoragePage() {
           </div>
         </CardContent>
       </Card>
+
+      <AdSlot placement="storage_page" className="h-28" />
     </div>
   );
 }

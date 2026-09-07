@@ -1,6 +1,7 @@
 "use client";
 
-import { useAdminStats, useAdminUsers, useAdminPayments, usePlans } from "@/lib/hooks/queries";
+import { useEffect, useState } from "react";
+import { useAdminStats, useAdminUsers, useAdminPayments } from "@/lib/hooks/queries";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge, Skeleton } from "@/components/ui/misc";
 import { formatBytes } from "@/lib/utils";
@@ -11,7 +12,6 @@ export default function AdminDashboard() {
   const { data: stats, isLoading } = useAdminStats();
   const { data: users } = useAdminUsers();
   const { data: payments } = useAdminPayments();
-  const { data: plans } = usePlans();
 
   const mrr = stats?.mrrCents ?? 0;
 
@@ -34,26 +34,7 @@ export default function AdminDashboard() {
       </div>
 
       <div className="grid gap-4 lg:grid-cols-3">
-        <Card className="lg:col-span-1">
-          <CardHeader><CardTitle>System health</CardTitle></CardHeader>
-          <CardContent className="space-y-3">
-            {[
-              { name: "Object storage (B2)", status: "ok" },
-              { name: "API", status: "ok" },
-              { name: "CDN", status: "ok" },
-              { name: "Database", status: "ok" },
-            ].map((h) => (
-              <div key={h.name} className="flex items-center justify-between">
-                <span className="text-sm text-muted-foreground">{h.name}</span>
-                <Badge tone={h.status === "ok" ? "success" : "error"}>{h.status}</Badge>
-              </div>
-            ))}
-            <div className="flex items-center justify-between pt-1">
-              <span className="text-sm text-muted-foreground">API requests (7d)</span>
-              <span className="text-sm font-medium text-foreground">{stats?.apiRequests7d ?? 0}</span>
-            </div>
-          </CardContent>
-        </Card>
+        <SystemHealth apiRequests7d={stats?.apiRequests7d ?? 0} />
 
         <Card className="lg:col-span-2">
           <CardHeader><CardTitle>Recent users</CardTitle><CardDescription>Latest registered accounts</CardDescription></CardHeader>
@@ -118,5 +99,72 @@ function Widget({ icon, label, value, sub }: { icon: React.ReactNode; label: str
         {sub && <p className="text-xs text-muted-foreground">{sub}</p>}
       </CardContent>
     </Card>
+  );
+}
+
+interface Health {
+  ok: boolean;
+  build: string;
+  dataLayer: { server: string; builtWith: string | null };
+  providers: { supabase: boolean; b2: boolean };
+  warnings?: string[];
+}
+
+/**
+ * What the server actually reports, from /api/health.
+ *
+ * This panel used to be a hardcoded array: "Object storage (B2): ok", "API: ok",
+ * "CDN: ok", "Database: ok" — four green badges that were green because they were
+ * written that way. A dashboard that says everything is fine regardless is worse
+ * than one with no health panel, because someone will believe it.
+ *
+ * CDN is gone from the list rather than reported: nothing here can see it, and the
+ * CDN is not wired up yet anyway.
+ */
+function SystemHealth({ apiRequests7d }: { apiRequests7d: number }) {
+  const [health, setHealth] = useState<Health | null>(null);
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    fetch("/api/health")
+      .then((r) => r.json())
+      .then(setHealth)
+      .catch(() => setFailed(true));
+  }, []);
+
+  return (
+    <Card className="lg:col-span-1">
+      <CardHeader>
+        <CardTitle>System health</CardTitle>
+        {health && <CardDescription className="font-mono text-xs">build {health.build}</CardDescription>}
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {failed && <p className="text-sm text-error">The API did not answer.</p>}
+        {!health && !failed && <Skeleton className="h-20 w-full" />}
+        {health && (
+          <>
+            <Line label="Database (Supabase)" ok={health.providers.supabase} />
+            <Line label="Object storage (B2)" ok={health.providers.b2} />
+            <Line label="Data layer" ok={health.dataLayer.server !== "mock"} text={health.dataLayer.server} />
+            {(health.warnings ?? []).map((w) => (
+              <p key={w} className="rounded-md bg-warning/10 p-2 text-xs text-warning">{w}</p>
+            ))}
+          </>
+        )}
+        <div className="flex items-center justify-between pt-1">
+          <span className="text-sm text-muted-foreground">API requests (7d)</span>
+          <span className="text-sm font-medium text-foreground tabular-nums">{apiRequests7d}</span>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function Line({ label, ok, text }: { label: string; ok: boolean; text?: string }) {
+  return (
+    <div className="flex items-center justify-between">
+      <span className="text-sm text-muted-foreground">{label}</span>
+      <Badge tone={ok ? "success" : "error"}>{text ?? (ok ? "ok" : "not configured")}</Badge>
+    </div>
   );
 }
