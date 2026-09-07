@@ -2,6 +2,16 @@ import "server-only";
 import { handler, requireUser } from "@/lib/api/auth";
 import { createAdminClient } from "@/lib/supabase/server";
 
+/**
+ * Note: nothing reads this at the moment.
+ *
+ * It backed the dashboard's "Recently used" list, which was removed because it
+ * duplicated "Recent access" beside it. Activity is still recorded on upload,
+ * download and save — it is the only record of what was *done* to a file rather than
+ * when it was last touched, and that is worth keeping — but this endpoint is now a
+ * route with no caller. Either give it one or take it out; leaving it is the state
+ * this project has had to clean up before.
+ */
 export const dynamic = "force-dynamic";
 
 /**

@@ -329,6 +329,33 @@ async function attachThumbnail(fileId: string, file: File | undefined): Promise<
  * simply divide the same bandwidth. One at a time is the honest default; concurrency
  * is a tuning decision to make with real numbers rather than by assumption.
  */
+/**
+ * How many parts are uploaded at once.
+ *
+ * This started at one, on the reasoning that parallel parts make progress harder to
+ * read and only divide the same bandwidth. The first real measurement said otherwise:
+ * a 127 MB file crawling at 57 KB/s, forty minutes remaining.
+ *
+ * A single upload stream is capped by the bandwidth-delay product — how much data can
+ * be in flight before the sender has to stop and wait for acknowledgements. Storage is
+ * a long way from most of the world, and on a link with a few hundred milliseconds of
+ * round trip that ceiling sits far below the actual connection. More streams do not
+ * divide the bandwidth; they are how you reach it. It is why every serious S3 client
+ * defaults to several.
+ *
+ * Four is the usual default and is gentle enough not to starve the rest of the tab.
+ */
+const PART_CONCURRENCY = 4;
+
+/**
+ * Uploads a large file in parts, several at a time.
+ *
+ * The bytes still go browser-to-storage; only ids and ETags pass through our compute.
+ *
+ * Progress is tracked per part and summed, because parts finish out of order — adding
+ * to a single counter as each one completes made the bar jump and the estimate
+ * meaningless.
+ */
 async function transferMultipart(
   task: UploadTask,
   fileId: string,
@@ -340,15 +367,28 @@ async function transferMultipart(
   const partCount = Math.max(1, Math.ceil(total / partSize));
   const completed: { partNumber: number; etag: string }[] = [];
 
-  // Signed in batches: a long upload would outlive URLs minted an hour ago, and
-  // signing every part up front wastes work on parts an interrupted upload never
-  // reaches.
-  const BATCH = 20;
-  let uploadedBytes = 0;
+  // Bytes confirmed sent, per part. Summed on every progress event so out-of-order
+  // completion still produces a number that only goes up.
+  const sent = new Map<number, number>();
   const startedAt = Date.now();
 
-  for (let start = 0; start < partCount; start += BATCH) {
+  const report = () => {
+    let done = 0;
+    for (const v of sent.values()) done += v;
+    ship(task.id, Math.min(99, Math.round((done / total) * 100)), speedSince(startedAt, done));
+  };
+
+  const bail = () => {
     if (cancelled(task.id)) throw Object.assign(new Error("Upload cancelled."), { code: "CANCELLED" });
+  };
+
+  // Signed in batches rather than all at once: a long upload would outlive URLs minted
+  // an hour ago, and signing every part up front wastes work on parts an interrupted
+  // upload never reaches.
+  const BATCH = 20;
+
+  for (let start = 0; start < partCount; start += BATCH) {
+    bail();
 
     const numbers: number[] = [];
     for (let n = start + 1; n <= Math.min(start + BATCH, partCount); n += 1) numbers.push(n);
@@ -358,20 +398,34 @@ async function transferMultipart(
       { uploadId, partNumbers: numbers },
     );
 
-    for (const part of parts) {
-      if (cancelled(task.id)) throw Object.assign(new Error("Upload cancelled."), { code: "CANCELLED" });
+    // A worker pool over this batch. Workers pull the next part rather than being
+    // handed a fixed share, so one slow part does not leave three workers idle.
+    let next = 0;
+    const worker = async () => {
+      for (;;) {
+        const index = next;
+        next += 1;
+        if (index >= parts.length) return;
 
-      const from = (part.partNumber - 1) * partSize;
-      const blob = file.slice(from, Math.min(from + partSize, total));
-      const etag = await putPart(part.url, blob, task.id, uploadedBytes, total, startedAt);
-      completed.push({ partNumber: part.partNumber, etag });
-      uploadedBytes += blob.size;
-      ship(task.id, Math.round((uploadedBytes / total) * 100), speedSince(startedAt, uploadedBytes));
-    }
+        const part = parts[index]!;
+        bail();
+
+        const from = (part.partNumber - 1) * partSize;
+        const blob = file.slice(from, Math.min(from + partSize, total));
+
+        const etag = await putPart(part.url, blob, task.id, part.partNumber, sent, report);
+        completed.push({ partNumber: part.partNumber, etag });
+        sent.set(part.partNumber, blob.size);
+        report();
+      }
+    };
+
+    await Promise.all(Array.from({ length: Math.min(PART_CONCURRENCY, parts.length) }, worker));
   }
 
   // Assemble. Until this succeeds the object does not exist, whatever landed.
   await apiClient.put(`/api/files/${fileId}/parts`, { uploadId, parts: completed });
+  ship(task.id, 100, speedSince(startedAt, total));
 }
 
 function cancelled(taskId: string): boolean {
@@ -396,9 +450,9 @@ async function putPart(
   url: string,
   blob: Blob,
   taskId: string,
-  uploadedBefore: number,
-  total: number,
-  startedAt: number,
+  partNumber: number,
+  sent: Map<number, number>,
+  report: () => void,
 ): Promise<string> {
   return new Promise<string>((resolve, reject) => {
     const xhr = new XMLHttpRequest();
@@ -406,8 +460,10 @@ async function putPart(
 
     xhr.upload.onprogress = (e) => {
       if (!e.lengthComputable) return;
-      const done = uploadedBefore + e.loaded;
-      ship(taskId, Math.round((done / total) * 100), speedSince(startedAt, done));
+      // This part's own figure. The caller sums them, so parts finishing out of order
+      // still produce a total that only moves forward.
+      sent.set(partNumber, e.loaded);
+      report();
     };
 
     xhr.onload = () => {

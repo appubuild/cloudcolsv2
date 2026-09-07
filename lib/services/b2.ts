@@ -197,8 +197,16 @@ export function publicUrl(objectKey: string): string {
 // Only three small control calls — create, complete, abort — involve our compute, and
 // none of them carries file bytes.
 
-/** How big each part is. */
-export const MULTIPART_PART_SIZE = 16 * 1024 * 1024;
+/**
+ * How big each part is.
+ *
+ * 8 MB rather than 16. Parts are uploaded several at a time, so the size that
+ * matters is not throughput per part but how much is lost when one fails and how
+ * often progress moves. Smaller parts retry cheaper and make the bar honest.
+ *
+ * At this size a 3 GB file is 384 parts, comfortably under the 10,000 limit.
+ */
+export const MULTIPART_PART_SIZE = 8 * 1024 * 1024;
 
 /**
  * Above this, an upload is split.
