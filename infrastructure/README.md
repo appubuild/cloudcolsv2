@@ -62,8 +62,13 @@ wrangler secret put CDN_TICKET_SECRET     # byte-identical to the one above
 ```
 
 `CDN_TICKET_SECRET` must match exactly, or every link the app issues fails signature
-validation and downloads stop. `CDN_DOMAIN` needs a DNS record for `cdn.cloudcols.com`
-pointing at the zone (proxied), which the route in `wrangler.jsonc` then claims.
+validation and downloads stop.
+
+The `cdn.cloudcols.com` DNS record does **not** need to be added by hand. The route in
+`wrangler.jsonc` is declared as a `custom_domain`, so `wrangler deploy` creates the
+record itself — proxied, with a certificate — and it appears in the dashboard as type
+"Worker", exactly like the app's own `cloudcols.com` entry. Adding an A record manually
+is the wrong shape: a Worker has no IP address to point one at.
 
 Until both are set the app falls back to presigned B2 URLs. That works — it is what the
 product ran on before — but it caches nothing and bills every byte, so `/api/health`

@@ -72,9 +72,12 @@ export async function pdfFirstPageThumbnail(
       // Only the first page is wanted, so do not read ahead through the document.
       disableAutoFetch: true,
       disableStream: false,
-      // A stored file is untrusted input. Neither of these is needed to draw a page,
-      // and both widen what a malicious document can reach.
-      isEvalSupported: false,
+      // A stored file is untrusted input, and XFA is a scripting-capable form layer
+      // that drawing a page does not need.
+      //
+      // `isEvalSupported: false` used to sit here too. pdf.js removed the eval path
+      // entirely in 5.7 — the option is gone from both the types and the build — so
+      // there is nothing left to switch off.
       enableXfa: false,
     });
     doc = await task.promise;

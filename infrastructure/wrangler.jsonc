@@ -9,13 +9,23 @@
 
   "observability": { "enabled": true },
 
-  // The hostname the app puts in CDN_DOMAIN. Until this route exists the app has
-  // no CDN to point at and falls back to presigned B2 URLs, which still work but
-  // bill every byte.
+  // The hostname the app puts in CDN_DOMAIN.
+  //
+  // `custom_domain` rather than a plain route: it makes `wrangler deploy` create the
+  // DNS record itself, proxied and with a certificate. A plain route needs a record to
+  // already exist, and there is nothing sensible to point one at — a Worker has no IP
+  // address, so the usual workaround is an A record aimed at a dummy one. This is how
+  // the app's own cloudcols.com entry came to show as type "Worker" in the dashboard.
+  //
+  // The pattern is a bare hostname: a custom domain owns the whole host, so a "/*"
+  // suffix is a plain route's syntax and is rejected here.
+  //
+  // Until this exists the app has no CDN to point at and falls back to presigned B2
+  // URLs, which still work but bill every byte.
   "routes": [
     {
-      "pattern": "cdn.cloudcols.com/*",
-      "zone_name": "cloudcols.com"
+      "pattern": "cdn.cloudcols.com",
+      "custom_domain": true
     }
   ],
 
