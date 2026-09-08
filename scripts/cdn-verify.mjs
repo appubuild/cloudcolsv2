@@ -265,6 +265,29 @@ async function main() {
       `first byte 0x${otherBody[0]?.toString(16)}`,
     );
 
+    // Two share links can point at one file with different permissions. The cached
+    // entry carries a content-disposition, so the two must not share one.
+    const shareKey = "user-A/user-files/doc/report.pdf";
+    const shareView = mint({ key: shareKey, exp: soon(), cls: "s", contentType: "application/pdf" });
+    const shareDownload = mint({
+      key: shareKey,
+      exp: soon(),
+      cls: "s",
+      disp: "a",
+      filename: "report.pdf",
+      contentType: "application/pdf",
+    });
+    const sv = await fetch(shareView);
+    await sv.arrayBuffer();
+    const sd = await fetch(shareDownload);
+    await sd.arrayBuffer();
+    check(
+      "a view share and a download share of one file do not share a cache entry",
+      sv.headers.get("content-disposition") === "inline" &&
+        (sd.headers.get("content-disposition") ?? "").startsWith("attachment"),
+      `view=${sv.headers.get("content-disposition")}, download=${sd.headers.get("content-disposition")}`,
+    );
+
     const pdfTicket = mint({ key: "user-A/user-files/doc/report.pdf", exp: soon(), cls: "p", contentType: "application/pdf" });
     upstreamHits = 0;
     const p1 = await fetch(pdfTicket);

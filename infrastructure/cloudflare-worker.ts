@@ -178,9 +178,14 @@ async function deliver(
    * tenant-scoped by construction and no two accounts can collide on one. Deliberately
    * NOT the request URL: that carries a signature and an expiry that change, and a key
    * that changes is a cache that never hits.
+   *
+   * The disposition is in the key because it is in the stored response. Two share
+   * links can point at one file with different permissions — one to view, one to
+   * download — and without this the first to be fetched would decide what the other
+   * one did, serving a view link's headers to someone who was given a download link.
    */
   const cacheKey = new Request(
-    `https://cdn-cache.internal/${ticket.deliveryClass}/${encodeURI(ticket.objectKey)}`,
+    `https://cdn-cache.internal/${ticket.deliveryClass}${ticket.disposition}/${encodeURI(ticket.objectKey)}`,
     { method: "GET" },
   );
 
