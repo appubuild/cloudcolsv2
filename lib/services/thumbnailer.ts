@@ -12,9 +12,20 @@
 // in this module is allowed to make an upload fail.
 
 import { THUMBNAIL_MAX_EDGE, THUMBNAIL_QUALITY } from "@/lib/storage/derivatives";
+import { pdfFirstPageThumbnail } from "./pdfThumbnail";
 
 /** How long to wait for a video to decode a frame before giving up on it. */
 const VIDEO_TIMEOUT_MS = 8000;
+
+/**
+ * The largest PDF that will be rasterised from memory during an upload.
+ *
+ * Unlike images and video, which are read through an object URL and decoded in
+ * pieces, a PDF has to be handed to pdf.js as bytes — so the whole file lands in the
+ * tab's memory. Above this the thumbnail is left to the backfill, which reads the
+ * same document from storage with range requests and touches only the first page.
+ */
+const PDF_INLINE_MAX_BYTES = 64 * 1024 * 1024;
 
 /** Scale so the longest edge is at most `max`, never scaling up. */
 function fit(width: number, height: number, max: number): { w: number; h: number } {
@@ -131,6 +142,12 @@ export async function makeThumbnail(file: File): Promise<Blob | null> {
   try {
     if (file.type.startsWith("image/")) return await fromImage(file);
     if (file.type.startsWith("video/")) return await fromVideo(file);
+    // The bytes are already here, so the first page costs no network at all — the
+    // backfill path is the one that has to range into storage for them.
+    if (file.type === "application/pdf" || /\.pdf$/i.test(file.name)) {
+      if (file.size > PDF_INLINE_MAX_BYTES) return null;
+      return await pdfFirstPageThumbnail({ data: await file.arrayBuffer() });
+    }
     return null;
   } catch {
     return null;

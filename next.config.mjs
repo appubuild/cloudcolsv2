@@ -54,6 +54,12 @@ const nextConfig = {
           // same-origin policy are for.
           "frame-src 'self' blob: https:; " +
           "media-src 'self' blob: https:; " +
+          // pdf.js rasterises a PDF's first page in a Web Worker so the grid does not
+          // stall while it renders. The worker is a same-origin bundled asset, but
+          // pdf.js falls back to constructing one from a blob: URL in some browsers,
+          // and worker-src falls through to default-src 'self' — which refuses it and
+          // takes every PDF thumbnail with it.
+          "worker-src 'self' blob:; " +
           "frame-ancestors 'none'; " +
           "base-uri 'self'",
       });

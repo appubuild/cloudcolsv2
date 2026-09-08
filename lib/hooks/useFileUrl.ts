@@ -11,7 +11,7 @@ import { useAuthStore } from "@/lib/store/auth";
  * never kept across a session. Nothing here proves access — the server checks
  * ownership before it signs anything.
  */
-export function useFileUrl(fileId: string | null, enabled = true, variant: "full" | "thumb" = "full") {
+export function useFileUrl(fileId: string | null, enabled = true, variant: "full" | "thumb" | "source" = "full") {
   const me = useAuthStore((s) => s.user);
 
   return useQuery({

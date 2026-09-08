@@ -83,8 +83,12 @@ export interface FilesRepository {
     userId: string,
     fileId: string,
     disposition?: "inline" | "attachment",
-    /** "thumb" asks for the stored small version rather than the file itself. */
-    variant?: "full" | "thumb",
+    /**
+     * "thumb" asks for the stored small version rather than the file itself.
+     * "source" asks for the original, but as machinery rather than as something the
+     * person did — it reads the same bytes as "full" and records no activity.
+     */
+    variant?: "full" | "thumb" | "source",
   ): Promise<{ url: string; expiresIn: number; filename?: string }>;
 }
 

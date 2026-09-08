@@ -175,13 +175,11 @@ export async function deleteObject(objectKey: string): Promise<void> {
   }
 }
 
-/** A CDN/convenience public URL for a key (used only for public share content). */
-export function publicUrl(objectKey: string): string {
-  if (serverEnv.b2.publicDomain) {
-    return `https://${serverEnv.b2.publicDomain}/${objectKey}`;
-  }
-  return `${originOf(serverEnv.b2.endpoint)}/${serverEnv.b2.bucket}/${objectKey}`;
-}
+// `publicUrl()` used to live here: it built an unsigned bucket URL for a key and had
+// no callers. Against a private bucket that URL is a guaranteed 403, and having it in
+// reach invited exactly the mistake this phase existed to fix — handing a reader a raw
+// storage URL instead of a delivery one. Every read now goes through
+// lib/services/delivery.ts, which chooses the CDN and falls back to a *signed* URL.
 
 // ---------------------------------------------------------------------------
 // Multipart upload

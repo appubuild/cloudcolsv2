@@ -37,7 +37,13 @@ export const THUMBNAIL_QUALITY = 0.72;
  */
 export const THUMBNAIL_MAX_BYTES = 512 * 1024;
 
-/** Categories a thumbnail is worth generating for. Everything else has an icon. */
+/**
+ * Categories a thumbnail is worth generating for. Everything else has an icon.
+ *
+ * PDFs are here because a folder of them was otherwise a wall of identical red
+ * glyphs. They are the only entry that needs a library to rasterise — see
+ * lib/services/pdfThumbnail.ts, which is loaded on demand for exactly that reason.
+ */
 export function canHaveThumbnail(category: string): boolean {
-  return category === "image" || category === "video";
+  return category === "image" || category === "video" || category === "pdf";
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import { ChevronDown, ChevronUp, X, RotateCcw, ArrowUp, CheckCircle2, AlertCircle } from "lucide-react";
+import { ChevronDown, ChevronUp, X, RotateCcw, ArrowUp, CheckCircle2, AlertCircle, Loader2 } from "lucide-react";
 import { useUploadStore } from "@/lib/store/upload";
 import { formatBytes } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -15,7 +15,11 @@ export function UploadTray() {
   const clearCompleted = useUploadStore((s) => s.clearCompleted);
 
   if (!open && tasks.length === 0) return null;
-  const activeCount = tasks.filter((t) => t.status === "uploading" || t.status === "queued").length;
+  // Processing counts as active: the file is not usable yet, and a badge that drops
+  // to zero while a row still says "Generating preview" contradicts itself.
+  const activeCount = tasks.filter(
+    (t) => t.status === "uploading" || t.status === "queued" || t.status === "processing",
+  ).length;
 
   return (
     <div className="fixed bottom-0 right-0 z-40 w-full sm:w-96">
@@ -57,9 +61,14 @@ export function UploadTray() {
                         </span>
                       </div>
                     )}
+                    {t.status === "processing" && (
+                      <div className="mt-1 flex items-center gap-1 text-xs text-muted-foreground">
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" /> Generating preview…
+                      </div>
+                    )}
                     {t.status === "success" && (
                       <div className="mt-1 flex items-center gap-1 text-xs text-success">
-                        <CheckCircle2 className="h-3.5 w-3.5" /> Done
+                        <CheckCircle2 className="h-3.5 w-3.5" /> Ready
                       </div>
                     )}
                     {t.status === "error" && (

@@ -98,4 +98,17 @@ export const serverEnv = {
       return serverConfig("B2_PUBLIC_DOMAIN");
     },
   },
+  cdn: {
+    // Hostname of the delivery worker, e.g. cdn.cloudcols.com. Empty until the
+    // worker is deployed and the DNS record exists, which is what makes delivery
+    // fall back to presigned B2 URLs rather than failing.
+    get domain(): string {
+      return serverConfig("CDN_DOMAIN");
+    },
+    // Shared HMAC secret. Held by this app and by the worker and nowhere else;
+    // whoever has it can mint a read capability for any object in the bucket.
+    get ticketSecret(): string {
+      return serverConfig("CDN_TICKET_SECRET");
+    },
+  },
 };

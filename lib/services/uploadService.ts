@@ -91,6 +91,12 @@ async function uploadTask(task: UploadTask): Promise<void> {
     // 4) A small version, made here because a Worker cannot resize anything. After
     //    the confirm, never before: the upload is what the user asked for, and a
     //    thumbnail that fails must not delay or endanger it.
+    //
+    //    Shown as its own step rather than folded into "uploading". The bytes are
+    //    safely in storage by now and the progress bar has been at 100% for a while,
+    //    so leaving it there would read as stalled — and the file genuinely is not
+    //    finished until it has something to draw in the grid.
+    store.update(task.id, { status: "processing", progress: 100 });
     await attachThumbnail(fileId, task.file);
 
     store.update(task.id, { status: "success", progress: 100 });
@@ -290,7 +296,14 @@ async function createPendingFileMock(me: { id: string }, task: UploadTask, ticke
  */
 async function attachThumbnail(fileId: string, file: File | undefined): Promise<void> {
   if (!file) return;
-  if (!file.type.startsWith("image/") && !file.type.startsWith("video/")) return;
+  // The three kinds a browser can rasterise. Everything else keeps its category tile,
+  // which is a real answer rather than a broken picture.
+  const renderable =
+    file.type.startsWith("image/") ||
+    file.type.startsWith("video/") ||
+    file.type === "application/pdf" ||
+    /\.pdf$/i.test(file.name);
+  if (!renderable) return;
 
   try {
     const blob = await makeThumbnail(file);

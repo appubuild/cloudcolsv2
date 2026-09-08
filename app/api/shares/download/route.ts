@@ -1,7 +1,7 @@
 import "server-only";
 import { limited, ApiError, DEFAULT_LIMITS } from "@/lib/api/auth";
 import { createAdminClient } from "@/lib/supabase/server";
-import { getPresignedDownloadUrl } from "@/lib/services/b2";
+import { resolveDelivery } from "@/lib/services/delivery";
 import { mustDownload } from "@/lib/services/mime";
 
 export const dynamic = "force-dynamic";
@@ -69,9 +69,17 @@ export const GET = limited(async (req: Request) => {
   const forced = mustDownload(String(file.original_filename), file.mime_type ? String(file.mime_type) : null);
   const attachment = forced || share.permission === "download";
 
-  const { presignedUrl, expiresIn } = await getPresignedDownloadUrl(String(file.object_key), 300, {
-    ...(attachment ? { downloadFilename: String(file.original_filename) } : {}),
+  // Class "s": served through Cloudflare, and edge-cacheable — a link posted somewhere
+  // busy is the one case where the same bytes really are fetched by many people. The
+  // cache key is the object key, so nothing is shared between two different files, and
+  // the five-minute lifetime keeps revocation as prompt as it was before.
+  const { url: deliveryUrl, expiresIn } = await resolveDelivery({
+    objectKey: String(file.object_key),
+    deliveryClass: "s",
+    disposition: attachment ? "attachment" : "inline",
+    filename: String(file.original_filename),
     ...(file.mime_type ? { contentType: String(file.mime_type) } : {}),
+    fallbackTtlSeconds: 300,
   });
 
   await admin
@@ -80,7 +88,7 @@ export const GET = limited(async (req: Request) => {
     .eq("id", share.id);
 
   return {
-    url: presignedUrl,
+    url: deliveryUrl,
     expiresIn,
     filename: String(file.original_filename),
     disposition: attachment ? ("attachment" as const) : ("inline" as const),

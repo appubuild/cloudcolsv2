@@ -1,0 +1,40 @@
+{
+  "$schema": "../node_modules/wrangler/config-schema.json",
+  // A second, separate Worker from the app in ../wrangler.jsonc. It has to be:
+  // this one holds the B2 application keys and serves file bytes, and it is
+  // deployed and rolled back on its own schedule.
+  "name": "cloudcols-cdn",
+  "main": "cloudflare-worker.ts",
+  "compatibility_date": "2026-08-01",
+
+  "observability": { "enabled": true },
+
+  // The hostname the app puts in CDN_DOMAIN. Until this route exists the app has
+  // no CDN to point at and falls back to presigned B2 URLs, which still work but
+  // bill every byte.
+  "routes": [
+    {
+      "pattern": "cdn.cloudcols.com/*",
+      "zone_name": "cloudcols.com"
+    }
+  ],
+
+  // Not secrets. The endpoint and bucket name appear in ordinary storage URLs and
+  // grant nothing without the key pair.
+  //
+  // Set with `wrangler secret put NAME -c infrastructure/wrangler.jsonc`:
+  //   B2_ACCESS_KEY_ID, B2_SECRET_ACCESS_KEY, CDN_TICKET_SECRET
+  //
+  // CDN_TICKET_SECRET must be byte-identical to the app Worker's, or every link
+  // this Worker is handed fails signature validation.
+  "vars": {
+    "B2_ENDPOINT": "s3.us-east-005.backblazeb2.com",
+    "B2_REGION": "us-east-005",
+    "B2_BUCKET": "cloudcols-prod",
+    // Which origins may read these URLs from script — the thumbnail backfill and
+    // the text editor both use fetch(). Left unset it allows any origin, which is
+    // safe here only because every URL carries its own signed capability and no
+    // cookie travels with it.
+    "CDN_ALLOWED_ORIGINS": "https://cloudcols.com,https://www.cloudcols.com"
+  }
+}

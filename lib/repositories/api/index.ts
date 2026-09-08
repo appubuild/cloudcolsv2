@@ -179,11 +179,11 @@ class ApiFilesRepository implements FilesRepository {
     userId: string,
     fileId: string,
     disposition: "inline" | "attachment" = "inline",
-    variant: "full" | "thumb" = "full",
+    variant: "full" | "thumb" | "source" = "full",
   ): Promise<{ url: string; expiresIn: number; filename?: string }> {
     const res = await apiClient.get<{ presignedUrl: string; expiresIn: number; filename?: string }>(
       `/api/files/download?fileId=${encodeURIComponent(fileId)}&disposition=${disposition}` +
-        (variant === "thumb" ? "&variant=thumb" : ""),
+        (variant === "full" ? "" : `&variant=${variant}`),
     );
     return { url: res.presignedUrl, expiresIn: res.expiresIn, filename: res.filename };
   }

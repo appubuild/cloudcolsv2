@@ -55,10 +55,13 @@ describe("canHaveThumbnail", () => {
   it("covers what a browser can draw", () => {
     expect(canHaveThumbnail("image")).toBe(true);
     expect(canHaveThumbnail("video")).toBe(true);
+    // PDFs need pdf.js to rasterise, which is why they were left out at first. A
+    // folder of them was then a wall of identical red glyphs, so they are in now.
+    expect(canHaveThumbnail("pdf")).toBe(true);
   });
 
   it("leaves everything else to its icon", () => {
-    for (const c of ["audio", "pdf", "document", "archive", "other", ""]) {
+    for (const c of ["audio", "document", "archive", "other", ""]) {
       expect(canHaveThumbnail(c)).toBe(false);
     }
   });

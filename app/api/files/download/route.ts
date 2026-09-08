@@ -1,7 +1,7 @@
 import "server-only";
 import { handler, requireUser, ApiError } from "@/lib/api/auth";
 import { createAdminClient } from "@/lib/supabase/server";
-import { getPresignedDownloadUrl } from "@/lib/services/b2";
+import { resolveDelivery } from "@/lib/services/delivery";
 import { recordActivity } from "@/lib/api/activity";
 import { mustDownload } from "@/lib/services/mime";
 
@@ -21,7 +21,17 @@ export const GET = handler(async (req: Request) => {
   // "thumb" asks for the stored small version instead of the file itself. It is the
   // difference between a grid costing a few kilobytes per tile and costing the whole
   // original — which is what it cost before thumbnails existed.
-  const wantsThumb = url.searchParams.get("variant") === "thumb";
+  const variant = url.searchParams.get("variant");
+  const wantsThumb = variant === "thumb";
+  /**
+   * "source" is the original, read by the app rather than by the person.
+   *
+   * The grid asks for it to generate a thumbnail for a file that has none. Without
+   * this distinction every tile that did so was recorded as a preview — so scrolling
+   * past a folder of un-thumbnailed photos filled Recent Access with files nobody had
+   * opened, and stamped last_accessed_at on all of them.
+   */
+  const isMachineRead = variant === "source";
 
   const admin = createAdminClient();
   const { data: file } = await admin
@@ -35,7 +45,7 @@ export const GET = handler(async (req: Request) => {
 
   // Drawing a tile in a grid is not something the user did. Recording it would put
   // every file they scrolled past into Recent and drown what they actually opened.
-  if (!wantsThumb) {
+  if (!wantsThumb && !isMachineRead) {
     // What was done, not only that something was: an attachment is a download, an
     // inline URL is a preview, and Recent should be able to say which.
     await recordActivity(user.id, { fileId }, disposition === "attachment" ? "downloaded" : "previewed");
@@ -47,8 +57,22 @@ export const GET = handler(async (req: Request) => {
   if (wantsThumb) {
     const key = file.thumbnail_url ? String(file.thumbnail_url) : "";
     if (!key) throw new ApiError("NO_THUMBNAIL", 404, "This file has no thumbnail.");
-    const thumb = await getPresignedDownloadUrl(key, 900, { contentType: "image/webp" });
-    return { presignedUrl: thumb.presignedUrl, expiresIn: thumb.expiresIn, filename: String(file.original_filename) };
+    // Class "t": a derivative small enough and impersonal enough to live in the edge
+    // cache, keyed by an object key that already begins with this user's id. This is
+    // the one delivery path where the second viewer costs storage nothing.
+    const thumb = await resolveDelivery({
+      objectKey: key,
+      deliveryClass: "t",
+      disposition: "inline",
+      contentType: "image/webp",
+      fallbackTtlSeconds: 900,
+    });
+    return {
+      presignedUrl: thumb.url,
+      expiresIn: thumb.expiresIn,
+      via: thumb.via,
+      filename: String(file.original_filename),
+    };
   }
 
   /**
@@ -61,11 +85,23 @@ export const GET = handler(async (req: Request) => {
   const forced = mustDownload(String(file.original_filename), file.mime_type ? String(file.mime_type) : null);
   const effective = forced ? "attachment" : disposition;
 
-  const { presignedUrl, expiresIn } = await getPresignedDownloadUrl(String(file.object_key), 600, {
+  // Class "p": the user's own file. It travels through Cloudflare — which is what
+  // makes the B2 egress free and gives the player a range-capable origin close to the
+  // reader — but is never held in the shared edge cache.
+  const delivery = await resolveDelivery({
+    objectKey: String(file.object_key),
+    deliveryClass: "p",
+    disposition: effective,
     // Without the filename the browser saves the storage key — a UUID with no
     // recognisable name — which is what made downloads look like they had failed.
-    ...(effective === "attachment" ? { downloadFilename: String(file.original_filename) } : {}),
+    filename: String(file.original_filename),
     ...(file.mime_type ? { contentType: String(file.mime_type) } : {}),
+    fallbackTtlSeconds: 600,
   });
-  return { presignedUrl, expiresIn, filename: String(file.original_filename) };
+  return {
+    presignedUrl: delivery.url,
+    expiresIn: delivery.expiresIn,
+    via: delivery.via,
+    filename: String(file.original_filename),
+  };
 });

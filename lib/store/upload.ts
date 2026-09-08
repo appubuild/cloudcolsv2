@@ -3,7 +3,22 @@
 import { create } from "zustand";
 import { uuid } from "@/lib/utils";
 
-export type UploadStatus = "queued" | "uploading" | "success" | "error" | "cancelled";
+/**
+ * Where an upload has got to.
+ *
+ * "processing" is the gap between storage having the bytes and the file being fully
+ * usable: the server has verified the object, and a preview is being generated from
+ * it. It is a real step with a real end — not a spinner standing in for work that
+ * never happens — and it always resolves, because the thumbnail path fails soft and
+ * returns either way.
+ */
+export type UploadStatus =
+  | "queued"
+  | "uploading"
+  | "processing"
+  | "success"
+  | "error"
+  | "cancelled";
 
 export interface UploadTask {
   id: string;

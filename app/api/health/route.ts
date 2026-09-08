@@ -1,4 +1,5 @@
 import { serverEnv, serverConfig, configSource } from "@/lib/config/server-env";
+import { cdnConfigured } from "@/lib/services/delivery";
 
 export const dynamic = "force-dynamic";
 
@@ -44,6 +45,12 @@ export async function GET() {
     .filter(([, value]) => !value)
     .map(([name]) => name);
 
+  // Whether file bytes travel user -> Cloudflare -> B2, or user -> B2 directly.
+  // Worth one line here because the difference is invisible from the outside and
+  // expensive: without it every download and every thumbnail is billed B2 egress and
+  // nothing is ever cached.
+  const cdn = cdnConfigured();
+
   const warnings: string[] = [];
   if (effectiveServer === "mock") {
     warnings.push("The server is set to mock. Nothing it returns is stored anywhere.");
@@ -63,6 +70,13 @@ export async function GET() {
   if (!supabaseConfigured) {
     warnings.push("Supabase is not configured; sign-in and every data request will fail.");
   }
+  if (!cdn) {
+    warnings.push(
+      "CDN_DOMAIN / CDN_TICKET_SECRET are not both set, so files are served straight " +
+        "from Backblaze: every byte is billed egress and nothing is cached. Deploy " +
+        "infrastructure/wrangler.jsonc and set both on this Worker.",
+    );
+  }
 
   return Response.json({
     ok: warnings.length === 0,
@@ -71,7 +85,10 @@ export async function GET() {
     // has not finished deploying is indistinguishable from a fix that did not work.
     build: process.env.CF_VERSION_METADATA_ID ?? process.env.WORKERS_CI_COMMIT_SHA ?? "unknown",
     dataLayer: { server: effectiveServer, builtWith: buildTimeValue },
-    providers: { supabase: supabaseConfigured, b2: b2Configured },
+    providers: { supabase: supabaseConfigured, b2: b2Configured, cdn },
+    // "cdn" means signed tickets are issued and Cloudflare fronts storage; "b2" means
+    // readers are sent straight to Backblaze.
+    delivery: cdn ? "cdn" : "b2",
     // Whether each value came from the Worker's bindings or from process.env.
     // "missing" against a name the dashboard clearly shows means the name differs
     // from what the code reads — a typo, or the wrong one of the two settings pages.
@@ -83,6 +100,8 @@ export async function GET() {
       B2_BUCKET: configSource("B2_BUCKET"),
       B2_ACCESS_KEY_ID: configSource("B2_ACCESS_KEY_ID"),
       B2_SECRET_ACCESS_KEY: configSource("B2_SECRET_ACCESS_KEY"),
+      CDN_DOMAIN: configSource("CDN_DOMAIN"),
+      CDN_TICKET_SECRET: configSource("CDN_TICKET_SECRET"),
     },
     ...(missing.length ? { missingAtRuntime: missing } : {}),
     ...(warnings.length ? { warnings } : {}),

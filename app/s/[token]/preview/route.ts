@@ -1,6 +1,6 @@
 import "server-only";
 import { resolveShare } from "@/lib/api/shares";
-import { getPresignedDownloadUrl } from "@/lib/services/b2";
+import { resolveDelivery } from "@/lib/services/delivery";
 import { thumbnailKey } from "@/lib/storage/derivatives";
 
 export const dynamic = "force-dynamic";
@@ -29,10 +29,19 @@ export async function GET(_req: Request, ctx: { params: Promise<Params> }): Prom
     return new Response(null, { status: 404, headers: { "cache-control": "no-store" } });
   }
 
+  // Fetched through the CDN rather than from storage directly. Same bytes, but the
+  // second crawler to ask for this preview is answered from the edge cache instead of
+  // costing another B2 transaction — and crawlers ask repeatedly.
   const key = thumbnailKey(state.file.objectKey);
-  const { presignedUrl } = await getPresignedDownloadUrl(key, 120, { contentType: "image/webp" });
+  const { url } = await resolveDelivery({
+    objectKey: key,
+    deliveryClass: "t",
+    disposition: "inline",
+    contentType: "image/webp",
+    fallbackTtlSeconds: 120,
+  });
 
-  const upstream = await fetch(presignedUrl);
+  const upstream = await fetch(url);
   if (!upstream.ok || !upstream.body) {
     return new Response(null, { status: 404, headers: { "cache-control": "no-store" } });
   }
