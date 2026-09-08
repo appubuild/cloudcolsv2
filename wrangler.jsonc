@@ -45,6 +45,15 @@
     "B2_REGION": "us-east-005",
     "B2_BUCKET": "cloudcols-prod",
 
+    // Where file bytes are read from. Inert on its own: delivery only moves to the
+    // CDN when CDN_TICKET_SECRET is also set, and that is a secret, set by hand.
+    //
+    // The ordering matters and is the reason this is safe to land first. Set the
+    // secret only AFTER https://cdn.cloudcols.com/__health answers — the moment both
+    // exist the app starts handing out CDN links, and if the Worker is not there yet
+    // every download 404s. Removing the secret puts it straight back on presigned B2.
+    "CDN_DOMAIN": "cdn.cloudcols.com",
+
     // The Supabase project URL and its publishable key. Both are public by
     // design: the key is built to ship inside browser bundles, and the URL is in
     // every request the browser makes. Neither reads or writes anything on its
