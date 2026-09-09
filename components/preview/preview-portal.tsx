@@ -182,9 +182,18 @@ function FileRenderer({ file, startEditing }: { file: File; startEditing?: boole
 
   if (cat === "video") {
     return (
-      // preload="metadata" so opening the preview does not pull the whole file;
-      // playback streams through range requests from storage.
-      <video className="max-h-full max-w-full rounded-lg" controls preload="metadata" src={url}>
+      /*
+        preload="auto" because opening the preview *is* the intent to watch.
+        "metadata" reads the header, then stops and waits for a click on play — so the
+        buffering everyone waits through only begins after that click. Starting it when
+        the player appears spends the same bytes a moment earlier, on a file the person
+        has already chosen. Still ranged, so it is a buffer and not a download.
+
+        It does not fix a slow start on its own. A GoPro MP4 puts its `moov` index at
+        the end of the file, so the browser must reach past the whole thing before it
+        can decode a frame, whatever it preloads.
+      */
+      <video className="max-h-full max-w-full rounded-lg" controls preload="auto" playsInline src={url}>
         Your browser does not support video playback.
       </video>
     );

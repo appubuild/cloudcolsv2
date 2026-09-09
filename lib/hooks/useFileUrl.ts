@@ -20,9 +20,20 @@ export function useFileUrl(fileId: string | null, enabled = true, variant: "full
     // grid a full-size original or the viewer a 512 px thumbnail.
     queryKey: ["fileUrl", fileId, variant],
     enabled: Boolean(fileId) && Boolean(me) && enabled,
-    // The server signs for 10 minutes; refetch well inside that.
-    staleTime: 5 * 60_000,
-    gcTime: 5 * 60_000,
+    /**
+     * Held for half an hour, which is what makes replaying a video fast.
+     *
+     * A signed URL is a cache key. Mint a new one and the browser has never seen it,
+     * so every byte it already holds is unreachable and a re-opened video starts from
+     * storage again. Keeping the same string means the browser's own HTTP cache
+     * answers instead.
+     *
+     * Thirty minutes because that is comfortably inside the shortest lifetime any
+     * delivery path issues — a private ticket lives 50 to 60 minutes and the presigned
+     * fallback an hour — so a reused URL is never an expired one.
+     */
+    staleTime: 30 * 60_000,
+    gcTime: 30 * 60_000,
     // A signed URL that failed will not succeed on a retry with the same inputs.
     retry: 0,
     queryFn: () => filesRepo.getDownloadUrl(me!.id, fileId!, "inline", variant),

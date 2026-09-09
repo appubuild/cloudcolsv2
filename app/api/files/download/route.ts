@@ -3,6 +3,7 @@ import { handler, requireUser, ApiError } from "@/lib/api/auth";
 import { createAdminClient } from "@/lib/supabase/server";
 import { resolveDelivery } from "@/lib/services/delivery";
 import { recordActivity } from "@/lib/api/activity";
+import { defer } from "@/lib/api/defer";
 import { mustDownload } from "@/lib/services/mime";
 
 export const dynamic = "force-dynamic";
@@ -46,12 +47,21 @@ export const GET = handler(async (req: Request) => {
   // Drawing a tile in a grid is not something the user did. Recording it would put
   // every file they scrolled past into Recent and drown what they actually opened.
   if (!wantsThumb && !isMachineRead) {
-    // What was done, not only that something was: an attachment is a download, an
-    // inline URL is a preview, and Recent should be able to say which.
-    await recordActivity(user.id, { fileId }, disposition === "attachment" ? "downloaded" : "previewed");
-
-    // Record access so the file shows in Recent Access (fire-and-forget).
-    await admin.from("files").update({ last_accessed_at: new Date().toISOString() }).eq("id", fileId).eq("owner_id", user.id);
+    // Deferred, not awaited. These are two database round trips that the person
+    // opening a video gains nothing from waiting on — and they were sitting directly
+    // in front of the URL, so every preview paid for them before playback could start.
+    // `defer` keeps them running after the response goes out.
+    defer(async () => {
+      // What was done, not only that something was: an attachment is a download, an
+      // inline URL is a preview, and Recent should be able to say which.
+      await recordActivity(user.id, { fileId }, disposition === "attachment" ? "downloaded" : "previewed");
+      // Record access so the file shows in Recent Access.
+      await admin
+        .from("files")
+        .update({ last_accessed_at: new Date().toISOString() })
+        .eq("id", fileId)
+        .eq("owner_id", user.id);
+    });
   }
 
   if (wantsThumb) {
@@ -65,7 +75,7 @@ export const GET = handler(async (req: Request) => {
       deliveryClass: "t",
       disposition: "inline",
       contentType: "image/webp",
-      fallbackTtlSeconds: 900,
+      fallbackTtlSeconds: 3600,
     });
     return {
       presignedUrl: thumb.url,
@@ -96,7 +106,7 @@ export const GET = handler(async (req: Request) => {
     // recognisable name — which is what made downloads look like they had failed.
     filename: String(file.original_filename),
     ...(file.mime_type ? { contentType: String(file.mime_type) } : {}),
-    fallbackTtlSeconds: 600,
+    fallbackTtlSeconds: 3600,
   });
   return {
     presignedUrl: delivery.url,

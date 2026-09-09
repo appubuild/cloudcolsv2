@@ -142,9 +142,15 @@ export function cacheHeaderFor(deliveryClass: DeliveryClass): string {
       return "private, max-age=300";
     case "p":
     default:
-      // A private original. The browser may reuse it for the life of the ticket; no
-      // cache in between may keep it at all.
-      return "private, max-age=600, no-transform";
+      // A private original. No shared cache may keep it at all — but the browser that
+      // was authorised to fetch it may reuse what it already has for as long as the
+      // ticket it used is valid.
+      //
+      // That upper bound is the whole argument: anyone holding this URL can refetch
+      // the bytes until it expires, so letting them reuse bytes already on their own
+      // disk grants nothing new. It is what makes replaying a video instant instead
+      // of another round trip to storage.
+      return "private, max-age=3000, no-transform";
   }
 }
 

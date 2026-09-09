@@ -112,7 +112,7 @@ export default function DashboardPage() {
       {/* Two-column: recent access + recent folders */}
       <div className="grid gap-4 lg:grid-cols-3">
         <div className="lg:col-span-2">
-          <RecentAccessList items={recentAccess ?? []} loading={recentLoading} limit={6} onToggleFavorite={(id) => router.push(`/app/files/${encodeURIComponent(id)}`)} />
+          <RecentAccessList items={recentAccess ?? []} loading={recentLoading} limit={6} />
         </div>
 
         <DashboardSection
