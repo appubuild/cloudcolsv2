@@ -16,38 +16,60 @@ import { downloadFile, openFileInNewTab } from "@/lib/services/fileActions";
 
 export function PreviewPortal({
   fileId,
+  file: known,
   onClose,
   startEditing = false,
 }: {
   fileId: string | null;
+  /**
+   * The row that was clicked, when the caller already has it.
+   *
+   * Every list that opens this portal has just rendered the file — name, size, type,
+   * whether it has a thumbnail. Fetching all of that again put a full round trip
+   * between the click and the first byte of video, for facts already on screen.
+   */
+  file?: File | null;
   onClose: () => void;
   /** Opened from "Edit" rather than "Preview": skip the reading view. */
   startEditing?: boolean;
 }) {
   const me = useAuthStore((s) => s.user);
-  const [file, setFile] = useState<File | null>(null);
+  const [fetched, setFetched] = useState<File | null>(null);
   const [loading, setLoading] = useState(false);
+
+  // What the caller handed over, if it is the file being opened. A stale object from
+  // a previous preview must not be shown against a new id.
+  const provided = known && known.id === fileId ? known : null;
+  const file = provided ?? fetched;
 
   useEffect(() => {
     if (!fileId || !me) {
-      setFile(null);
+      setFetched(null);
       return;
     }
+
+    // Recording the open is worth a request; it is what fills Recent Access. It is
+    // not worth waiting for, and never was.
+    filesRepo.markAccessed(me.id, "file", fileId).catch(() => {});
+
+    if (provided) {
+      setFetched(null);
+      return;
+    }
+
     let active = true;
     setLoading(true);
     filesRepo
       .get(me.id, fileId)
       .then((f) => {
-        if (active && f) setFile(f);
-        // Record the open so it appears in Recent Access.
-        if (f) filesRepo.markAccessed(me.id, "file", fileId).catch(() => {});
+        if (active && f) setFetched(f);
       })
-      .catch(() => active && setFile(null))
+      .catch(() => active && setFetched(null))
       .finally(() => active && setLoading(false));
     return () => {
       active = false;
     };
-  }, [fileId, me]);
+  }, [fileId, me, provided]);
 
   useEffect(() => {
     if (!fileId) return;
@@ -148,6 +170,16 @@ function FileRenderer({ file, startEditing }: { file: File; startEditing?: boole
   const previewable = isText || cat === "image" || cat === "video" || cat === "audio" || cat === "pdf";
   const { data, isLoading, isError } = useFileUrl(file.id, previewable);
 
+  /**
+   * The still frame to show while a video works out how to start.
+   *
+   * This costs nothing: the grid already fetched this exact URL to draw the tile, and
+   * it is the same query key, so it comes straight from cache and paints immediately.
+   * Without it the player is a black rectangle for as long as the file takes to open —
+   * which for an MP4 with its index at the end is several seconds of looking broken.
+   */
+  const poster = useFileUrl(file.id, cat === "video" && Boolean(file.thumbnailUrl), "thumb");
+
   if (previewable && isLoading) {
     return <Spinner className="h-8 w-8" />;
   }
@@ -193,7 +225,14 @@ function FileRenderer({ file, startEditing }: { file: File; startEditing?: boole
         the end of the file, so the browser must reach past the whole thing before it
         can decode a frame, whatever it preloads.
       */
-      <video className="max-h-full max-w-full rounded-lg" controls preload="auto" playsInline src={url}>
+      <video
+        className="max-h-full max-w-full rounded-lg"
+        controls
+        preload="auto"
+        playsInline
+        poster={poster.data?.url}
+        src={url}
+      >
         Your browser does not support video playback.
       </video>
     );

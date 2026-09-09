@@ -195,27 +195,17 @@ export async function deleteObject(objectKey: string): Promise<void> {
 // Only three small control calls — create, complete, abort — involve our compute, and
 // none of them carries file bytes.
 
-/**
- * How big each part is.
- *
- * 8 MB rather than 16. Parts are uploaded several at a time, so the size that
- * matters is not throughput per part but how much is lost when one fails and how
- * often progress moves. Smaller parts retry cheaper and make the bar honest.
- *
- * At this size a 3 GB file is 384 parts, comfortably under the 10,000 limit.
- */
-export const MULTIPART_PART_SIZE = 8 * 1024 * 1024;
-
-/**
- * Above this, an upload is split.
- *
- * Below it the overhead is not worth it: a single PUT is one round trip, and
- * multipart adds a create, a complete, and a presign per part.
- */
-export const MULTIPART_THRESHOLD = 32 * 1024 * 1024;
-
-/** S3 allows at most this many parts per object. */
-export const MULTIPART_MAX_PARTS = 10_000;
+// The sizes themselves live in lib/storage/multipart.ts, because the browser slices
+// the file by exactly the numbers the server signs for. Re-exported here so callers
+// that already talk to storage do not need to know that.
+export {
+  MULTIPART_PART_SIZE,
+  MULTIPART_THRESHOLD,
+  MULTIPART_MAX_PARTS,
+  MULTIPART_MIN_PART_SIZE,
+  UPLOAD_PART_CONCURRENCY,
+  partSizeFor,
+} from "@/lib/storage/multipart";
 
 /**
  * Pull a single XML tag's text out of a response. Enough for these three calls.

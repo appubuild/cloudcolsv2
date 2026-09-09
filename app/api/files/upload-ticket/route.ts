@@ -8,7 +8,7 @@ import {
   createMultipartUpload,
   MULTIPART_PART_SIZE,
   MULTIPART_THRESHOLD,
-  MULTIPART_MAX_PARTS,
+  partSizeFor,
 } from "@/lib/services/b2";
 
 export const dynamic = "force-dynamic";
@@ -66,7 +66,7 @@ export const POST = limited(async (req: Request) => {
   let partSize = MULTIPART_PART_SIZE;
 
   if (multipart) {
-    partSize = Math.max(MULTIPART_PART_SIZE, Math.ceil(body.sizeBytes / MULTIPART_MAX_PARTS));
+    partSize = partSizeFor(body.sizeBytes);
     const created = await createMultipartUpload(objectKey, contentType);
     multipartUploadId = created.uploadId;
   } else {

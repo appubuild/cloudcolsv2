@@ -17,9 +17,11 @@ import { filesRepo } from "@/lib/repositories";
 import { refreshFileViews } from "@/lib/query-client";
 import { makeThumbnail } from "./thumbnailer";
 import { apiClient } from "@/lib/api/client";
+import { MULTIPART_PART_SIZE as PART_SIZE, UPLOAD_PART_CONCURRENCY } from "@/lib/storage/multipart";
 
 const CHUNK_DURATION_MS = 150; // simulated per-step elapsed time (mock mode)
-const PART_SIZE = 10 * 1024 * 1024; // mirrors the ticket's partSizeBytes
+// PART_SIZE is a fallback only: the ticket carries the size the server signed for,
+// and that is what the file is actually sliced by.
 
 function seedSpeed(size: number): number {
   return Math.max(400_000, Math.min(4_500_000, size / 8));
@@ -337,28 +339,32 @@ async function attachThumbnail(fileId: string, file: File | undefined): Promise<
  * retry on their own, and the bytes still go straight from here to storage: the three
  * control calls carry nothing but ids and ETags.
  *
- * Sequential rather than parallel. Parallel parts finish sooner on a fast link and
- * make progress meaningless, multiply the memory held at once, and on a slow link
- * simply divide the same bandwidth. One at a time is the honest default; concurrency
- * is a tuning decision to make with real numbers rather than by assumption.
+ * Few and large rather than many and small. Every part is a separate request with a
+ * handshake in front of it, and on a bandwidth-limited link that overhead is the whole
+ * cost — so a 263 MB video goes up as nine 32 MB parts rather than thirty-three 8 MB
+ * ones. Anything under the split threshold is a single PUT, which measured fastest of
+ * all; splitting starts where losing the whole upload to one dropped connection would
+ * hurt more than the handshakes cost.
  */
 /**
  * How many parts are uploaded at once.
  *
- * This started at one, on the reasoning that parallel parts make progress harder to
- * read and only divide the same bandwidth. The first real measurement said otherwise:
- * a 127 MB file crawling at 57 KB/s, forty minutes remaining.
+ * Two, and measured rather than reasoned about — the reasoning here was wrong twice.
  *
- * A single upload stream is capped by the bandwidth-delay product — how much data can
- * be in flight before the sender has to stop and wait for acknowledgements. Storage is
- * a long way from most of the world, and on a link with a few hundred milliseconds of
- * round trip that ceiling sits far below the actual connection. More streams do not
- * divide the bandwidth; they are how you reach it. It is why every serious S3 client
- * defaults to several.
+ * It began at one, then went to four on the theory that a single stream is capped by
+ * the bandwidth-delay product and more streams are how you reach the real ceiling.
+ * That is true of a link limited by latency. On a consumer uplink, which is limited by
+ * bandwidth, four connections do not multiply the throughput: they divide it, and each
+ * pays its own TLS handshake and TCP slow start on the way.
  *
- * Four is the usual default and is gentle enough not to starve the rest of the tab.
+ * 64 MB to the live bucket, interleaved rounds: one PUT 2.83 MB/s, two 32 MB parts
+ * sequentially 2.39, eight 8 MB parts four at a time 2.12. The setting this replaces
+ * was the slowest shape tested.
+ *
+ * The number lives in lib/storage/multipart.ts, beside the part size it has to agree
+ * with.
  */
-const PART_CONCURRENCY = 4;
+const PART_CONCURRENCY = UPLOAD_PART_CONCURRENCY;
 
 /**
  * Uploads a large file in parts, several at a time.

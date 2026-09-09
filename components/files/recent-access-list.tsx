@@ -34,11 +34,13 @@ export function RecentAccessList({
   limit?: number;
 }) {
   const router = useRouter();
-  const [previewId, setPreviewId] = useState<string | null>(null);
+  const [preview, setPreview] = useState<File | null>(null);
   const { toggleFavorite, toggleFolderFavorite } = useMutateFiles();
 
   const open = (item: FileListItem) => {
-    if (isFile(item)) setPreviewId(item.id);
+    // The whole file, not just its id: the portal then has everything it needs and
+    // skips a round trip for facts this row already displayed.
+    if (isFile(item)) setPreview(item);
     else router.push(`/app/files/${encodeURIComponent(item.id)}`);
   };
 
@@ -120,7 +122,7 @@ export function RecentAccessList({
           either way today — but a Card that later gains `overflow-hidden` or a
           transform would start clipping it, and that failure stays invisible until
           somebody opens a preview from this list. */}
-      <PreviewPortal fileId={previewId} onClose={() => setPreviewId(null)} />
+      <PreviewPortal fileId={preview?.id ?? null} file={preview} onClose={() => setPreview(null)} />
     </>
   );
 }

@@ -83,6 +83,13 @@ export function FileManager({
   const [order, setOrder] = useState<"asc" | "desc">("asc");
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [previewId, setPreviewId] = useState<string | null>(null);
+  /**
+   * The row the preview was opened from.
+   *
+   * Handed straight to the portal so it does not re-fetch a file this list has
+   * already rendered — one fewer round trip between the click and the first byte.
+   */
+  const [previewItem, setPreviewItem] = useState<File | null>(null);
   // Set when the preview was opened from "Edit", so it skips the reading view.
   const [previewEditing, setPreviewEditing] = useState(false);
   const [createFolderOpen, setCreateFolderOpen] = useState(false);
@@ -243,6 +250,7 @@ export function FileManager({
     onOpen: (item: FileListItem) => openItem(item),
     onEdit: (item: FileListItem) => {
       setPreviewEditing(true);
+      setPreviewItem(item as File);
       setPreviewId(item.id);
     },
     onRename: (item: FileListItem) => {
@@ -276,6 +284,7 @@ export function FileManager({
     }
     // Preview, not edit — a previous "Edit" must not leave the intent set.
     setPreviewEditing(false);
+    setPreviewItem(item as File);
     setPreviewId(item.id);
   };
 
@@ -811,9 +820,11 @@ export function FileManager({
       <ShareDialog item={shareTarget} onClose={() => setShareTarget(null)} />
       <PreviewPortal
         fileId={previewId}
+        file={previewItem}
         startEditing={previewEditing}
         onClose={() => {
           setPreviewId(null);
+          setPreviewItem(null);
           setPreviewEditing(false);
         }}
       />
