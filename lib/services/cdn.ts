@@ -78,6 +78,14 @@ export interface DeliveryOptions {
   /** Filename offered on save. Only meaningful with an attachment disposition. */
   filename?: string;
   contentType?: string;
+  /**
+   * Bind the link to this account.
+   *
+   * The worker then also requires a signed cookie naming the same person, so the URL
+   * on its own is useless to anyone else. Set for a person's own files; left unset for
+   * share assets, where passing the link around is the point.
+   */
+  userId?: string;
 }
 
 /**
@@ -100,6 +108,7 @@ export async function cdnUrl(objectKey: string, opts: DeliveryOptions): Promise<
     // twin do not differ by a field neither of them uses.
     ...(opts.disposition === "attachment" && opts.filename ? { filename: opts.filename } : {}),
     ...(opts.contentType ? { contentType: opts.contentType } : {}),
+    ...(opts.userId ? { userId: opts.userId } : {}),
   };
 
   const signature = await signTicket(secret, ticket);

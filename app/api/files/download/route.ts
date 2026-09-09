@@ -4,6 +4,7 @@ import { createAdminClient } from "@/lib/supabase/server";
 import { resolveDelivery } from "@/lib/services/delivery";
 import { recordActivity } from "@/lib/api/activity";
 import { defer } from "@/lib/api/defer";
+import { establishDeliverySession } from "@/lib/api/deliverySession";
 import { mustDownload } from "@/lib/services/mime";
 
 export const dynamic = "force-dynamic";
@@ -64,6 +65,15 @@ export const GET = handler(async (req: Request) => {
     });
   }
 
+  /**
+   * Bind every link this route issues to the account that asked for it.
+   *
+   * These are the person's own files. Without this the URL is a bearer token: pasted
+   * into a message it plays for whoever receives it, for as long as it lasts. The
+   * cookie set here is what the CDN checks it against.
+   */
+  const boundTo = await establishDeliverySession(req, user.id);
+
   if (wantsThumb) {
     const key = file.thumbnail_url ? String(file.thumbnail_url) : "";
     if (!key) throw new ApiError("NO_THUMBNAIL", 404, "This file has no thumbnail.");
@@ -75,6 +85,7 @@ export const GET = handler(async (req: Request) => {
       deliveryClass: "t",
       disposition: "inline",
       contentType: "image/webp",
+      userId: boundTo,
       fallbackTtlSeconds: 3600,
     });
     return {
@@ -106,6 +117,7 @@ export const GET = handler(async (req: Request) => {
     // recognisable name — which is what made downloads look like they had failed.
     filename: String(file.original_filename),
     ...(file.mime_type ? { contentType: String(file.mime_type) } : {}),
+    userId: boundTo,
     fallbackTtlSeconds: 3600,
   });
   return {

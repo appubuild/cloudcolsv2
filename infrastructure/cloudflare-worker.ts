@@ -33,9 +33,15 @@ import {
   signTicket,
   signaturesMatch,
   cacheHeaderFor,
+  canonicalTicketLegacy,
   edgeCacheable,
   type TicketOptions,
 } from "../lib/services/cdnTicket";
+import {
+  DELIVERY_COOKIE,
+  readCookie,
+  verifyDeliveryCookie,
+} from "../lib/services/deliveryCookie";
 
 /**
  * The two Workers-runtime types this file needs.
@@ -130,11 +136,42 @@ export default {
     // Signature before expiry: checking expiry first would answer "this key existed"
     // for an unsigned guess.
     const expected = await signTicket(env.CDN_TICKET_SECRET, ticket);
-    if (!signaturesMatch(expected, signature)) {
-      return text("This link is not valid.", 403, request, env);
+    let valid = signaturesMatch(expected, signature);
+
+    if (!valid && !ticket.userId) {
+      // A link handed out by the version of the app that signed without an owner
+      // field. Those stay valid for up to an hour after a deploy, and refusing them
+      // would break every download already open in somebody's browser. An old-format
+      // ticket can no more be forged than a new one — it is the same secret — it just
+      // carries no owner, so nothing is bound to check it against.
+      const legacy = await signTicket(env.CDN_TICKET_SECRET, ticket, canonicalTicketLegacy);
+      valid = signaturesMatch(legacy, signature);
     }
+
+    if (!valid) return text("This link is not valid.", 403, request, env);
     if (Date.now() > ticket.expiresAt) {
       return text("This link has expired.", 403, request, env);
+    }
+
+    /**
+     * A ticket that names an owner is not a bearer token.
+     *
+     * The URL alone used to be enough: copied out of the network tab and sent on, it
+     * played for whoever received it until it expired. Now the app also sets a signed,
+     * httpOnly cookie on the domain both it and this worker sit under, and a bound
+     * link is only honoured from a browser that has it.
+     *
+     * Share links carry no owner and are deliberately left as they were — passing them
+     * around is what they are for.
+     */
+    if (ticket.userId) {
+      const cookie = await verifyDeliveryCookie(
+        env.CDN_TICKET_SECRET,
+        readCookie(request.headers.get("cookie"), DELIVERY_COOKIE),
+      );
+      if (!cookie || cookie.userId !== ticket.userId) {
+        return text("This link only works for the account it was issued to.", 403, request, env);
+      }
     }
 
     return deliver(request, env, ctx, ticket);
@@ -346,8 +383,12 @@ function corsHeaders(request: Request, env: Env): Record<string, string> {
   if (origin && allowed.includes(origin)) {
     return {
       "access-control-allow-origin": origin,
+      // The delivery cookie has to ride along on script-initiated reads — the text
+      // editor, the thumbnail backfill, pdf.js — and a credentialed response may not
+      // answer with a wildcard origin, which is the other reason the allowlist exists.
+      "access-control-allow-credentials": "true",
       // Without this a shared cache could hand one origin's response to another.
-      vary: "Origin",
+      vary: "Origin, Cookie",
       "access-control-expose-headers": PASSTHROUGH.join(", "),
     };
   }

@@ -112,13 +112,24 @@ function startFakeB2() {
 // lib/services/cdnTicket.ts. If the two ever disagree every signed request below
 // fails, which is the point: this asserts the format rather than assuming it.
 // ---------------------------------------------------------------------------
-function mint({ key, exp, cls, disp = "i", filename = "", contentType = "" }) {
-  const canonical = [key, String(exp), cls, disp, filename, contentType].join("\n");
+function mint({ key, exp, cls, disp = "i", filename = "", contentType = "", userId = "", legacy = false }) {
+  const fields = [key, String(exp), cls, disp, filename, contentType];
+  // The old shape had no owner field. The worker still accepts it, so links already
+  // in a browser survive a deploy; this exercises that path deliberately.
+  if (!legacy) fields.push(userId);
+  const canonical = fields.join("\n");
   const sig = createHmac("sha256", SECRET).update(canonical).digest("hex");
   const p = new URLSearchParams({ key, exp: String(exp), c: cls, d: disp, sig });
   if (filename) p.set("n", filename);
   if (contentType) p.set("ct", contentType);
+  if (userId) p.set("u", userId);
   return `http://127.0.0.1:${CDN_PORT}/v1/object?${p.toString()}`;
+}
+
+/** The cookie the app sets alongside a bound link. */
+function cookieFor(userId, expiresAt = Date.now() + 3600_000) {
+  const body = `v1.${userId}.${expiresAt}`;
+  return `cc_dk=${body}.${createHmac("sha256", SECRET).update(body).digest("hex")}`;
 }
 
 const soon = () => Date.now() + 10 * 60 * 1000;
@@ -231,7 +242,38 @@ async function main() {
     const flippedRes = await fetch(flipped);
     check("an inline ticket cannot be edited into a download", flippedRes.status === 403, `got ${flippedRes.status}`);
 
-    console.log("\nDelivery");
+    console.log("\nOwnership binding");
+    const owner = "user-A";
+    const bound = mint({ key: thumbKey, exp: soon(), cls: "t", contentType: "image/webp", userId: owner });
+
+    check("a bound link is refused with no cookie", (await fetch(bound)).status === 403);
+    check(
+      "a bound link works for the account it was issued to",
+      (await fetch(bound, { headers: { cookie: cookieFor(owner) } })).status === 200,
+    );
+    check(
+      "a bound link is refused for a different account",
+      (await fetch(bound, { headers: { cookie: cookieFor("user-B") } })).status === 403,
+    );
+    check(
+      "a forged cookie is refused",
+      (await fetch(bound, { headers: { cookie: `cc_dk=v1.${owner}.${Date.now() + 3600_000}.${"0".repeat(64)}` } })).status === 403,
+    );
+    check(
+      "an expired cookie is refused",
+      (await fetch(bound, { headers: { cookie: cookieFor(owner, Date.now() - 1000) } })).status === 403,
+    );
+    check("removing the owner from the link invalidates it", (await fetch(bound.replace(/&u=[^&]*/, ""))).status === 403);
+    check(
+      "rewriting the owner invalidates it",
+      (await fetch(bound.replace(`u=${owner}`, "u=user-B"), { headers: { cookie: cookieFor("user-B") } })).status === 403,
+    );
+    check(
+      "a link issued before the change still works",
+      (await fetch(mint({ key: thumbKey, exp: soon(), cls: "t", contentType: "image/webp", legacy: true }))).status === 200,
+    );
+
+  console.log("\nDelivery");
     upstreamHits = 0;
     const first = await fetch(good);
     const firstBody = Buffer.from(await first.arrayBuffer());

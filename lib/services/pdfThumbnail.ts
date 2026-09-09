@@ -15,6 +15,7 @@
 // nothing is said about it.
 
 import { THUMBNAIL_MAX_EDGE, THUMBNAIL_QUALITY } from "@/lib/storage/derivatives";
+import { deliveryCredentials } from "./deliveryFetch";
 
 type PdfjsModule = typeof import("pdfjs-dist");
 
@@ -68,7 +69,13 @@ export async function pdfFirstPageThumbnail(
   let doc: Awaited<ReturnType<typeof lib.getDocument>["promise"]> | null = null;
   try {
     const task = lib.getDocument({
-      ...("data" in source ? { data: new Uint8Array(source.data) } : { url: source.url }),
+      ...("data" in source
+        ? { data: new Uint8Array(source.data) }
+        : {
+            url: source.url,
+            // Its range requests need the delivery cookie like any other read.
+            withCredentials: deliveryCredentials(source.url) === "include",
+          }),
       // Only the first page is wanted, so do not read ahead through the document.
       disableAutoFetch: true,
       disableStream: false,

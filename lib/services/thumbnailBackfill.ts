@@ -16,6 +16,7 @@
 import { apiClient } from "@/lib/api/client";
 import { THUMBNAIL_MAX_EDGE, THUMBNAIL_QUALITY } from "@/lib/storage/derivatives";
 import { pdfFirstPageThumbnail } from "./pdfThumbnail";
+import { deliveryCredentials, deliveryCrossOrigin } from "./deliveryFetch";
 
 /** Files this tab has already tried, so a re-render does not try again. */
 const attempted = new Set<string>();
@@ -72,7 +73,7 @@ async function encode(source: CanvasImageSource, width: number, height: number):
  */
 async function shrinkImage(url: string): Promise<Blob | null> {
   try {
-    const res = await fetch(url);
+    const res = await fetch(url, { credentials: deliveryCredentials(url) });
     if (!res.ok) return null;
     const blob = await res.blob();
 
@@ -107,7 +108,10 @@ async function shrinkImage(url: string): Promise<Blob | null> {
  */
 async function frameFromVideo(url: string): Promise<Blob | null> {
   const video = document.createElement("video");
-  video.crossOrigin = "anonymous";
+  // "use-credentials" where the link is bound to the account, because "anonymous"
+  // sends no cookie and the CDN would refuse. Still a CORS load either way — without
+  // the attribute the canvas is tainted and encoding the frame throws.
+  video.crossOrigin = deliveryCrossOrigin(url);
   video.muted = true;
   video.playsInline = true;
   video.preload = "metadata";

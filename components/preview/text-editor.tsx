@@ -7,6 +7,7 @@ import { toast } from "@/lib/store/toast";
 import { apiClient } from "@/lib/api/client";
 import { refreshFileViews } from "@/lib/query-client";
 import { extensionOf } from "@/lib/services/fileTypes";
+import { deliveryCredentials } from "@/lib/services/deliveryFetch";
 import { Eye, Pencil, Save, RotateCcw } from "lucide-react";
 import type { File as CloudFile } from "@/lib/types";
 
@@ -42,7 +43,9 @@ export function TextEditor({ file, url, startEditing = false }: { file: CloudFil
     setText(null);
     setError(null);
 
-    fetch(url)
+    // The cookie is what proves this link belongs to the reader; a plain cross-subdomain
+    // fetch would send none and the CDN would refuse it.
+    fetch(url, { credentials: deliveryCredentials(url) })
       .then((r) => {
         if (!r.ok) throw new Error(`Storage answered ${r.status}.`);
         return r.text();

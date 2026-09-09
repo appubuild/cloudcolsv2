@@ -81,6 +81,32 @@ export async function requireUser(request: Request): Promise<AuthUser> {
 }
 
 /** Wrap a handler so expected errors map to HTTP responses without leaking stack traces. */
+/**
+ * Headers a route wants on its own response, keyed by the request that asked for them.
+ *
+ * `handler` builds the Response itself, so a route has no way to reach it. This is the
+ * seam. A WeakMap rather than a field on the request because Request is not ours to
+ * extend, and entries disappear with the request that owns them.
+ *
+ * Used for the delivery cookie, which has to ride back on the same response that hands
+ * out the signed URL — a separate round trip to fetch it would race the first image.
+ */
+const extraHeaders = new WeakMap<Request, Headers>();
+
+/** Adds a header to the response this request will produce. */
+export function setResponseHeader(req: Request, name: string, value: string): void {
+  const existing = extraHeaders.get(req) ?? new Headers();
+  existing.append(name, value);
+  extraHeaders.set(req, existing);
+}
+
+function responseHeaders(req: Request, base: Record<string, string>): Headers {
+  const headers = new Headers(base);
+  const extra = extraHeaders.get(req);
+  if (extra) for (const [k, v] of extra) headers.append(k, v);
+  return headers;
+}
+
 export function handler<Arg, Res>(
   fn: (req: Request, ctx?: Arg) => Promise<Res>
 ): (req: Request, ctx?: Arg) => Promise<Response> {
@@ -88,7 +114,7 @@ export function handler<Arg, Res>(
     try {
       const data = await fn(req, ctx);
       // API payloads are per-user / per-request; never let a proxy cache them.
-      return Response.json({ ok: true, data }, { status: 200, headers: { "cache-control": "no-store" } });
+      return Response.json({ ok: true, data }, { status: 200, headers: responseHeaders(req, { "cache-control": "no-store" }) });
     } catch (e) {
       const err = e as ApiError;
       const status = err.status ?? 500;

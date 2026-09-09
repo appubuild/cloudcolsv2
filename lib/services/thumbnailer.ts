@@ -14,8 +14,14 @@
 import { THUMBNAIL_MAX_EDGE, THUMBNAIL_QUALITY } from "@/lib/storage/derivatives";
 import { pdfFirstPageThumbnail } from "./pdfThumbnail";
 
-/** How long to wait for a video to decode a frame before giving up on it. */
-const VIDEO_TIMEOUT_MS = 8000;
+/**
+ * How long to wait for a video to decode a frame before giving up on it.
+ *
+ * Twelve seconds rather than eight: a 300 MB file has to be indexed and seeked before
+ * a frame exists, and a thumbnail that times out is indistinguishable from one that
+ * was never possible.
+ */
+const VIDEO_TIMEOUT_MS = 12_000;
 
 /**
  * The largest PDF that will be rasterised from memory during an upload.
@@ -103,7 +109,19 @@ async function fromVideo(file: File): Promise<Blob | null> {
       };
 
       video.onerror = () => done(null);
-      video.onloadeddata = () => {
+      /*
+        `loadedmetadata`, not `loadeddata`.
+
+        This waited for `loadeddata`, which fires once a frame has been decoded — and
+        with `preload="metadata"` the browser reads the header and then stops, so that
+        frame is never decoded and the event may never come. Whether it did depended on
+        the browser and the file, which is why two videos uploaded three minutes apart
+        got one thumbnail between them.
+
+        `loadedmetadata` is the event `preload="metadata"` actually promises. The seek
+        below is what then forces a frame, and `seeked` is what says it is ready.
+      */
+      video.onloadedmetadata = () => {
         // A frame one second in, or the middle of anything shorter. The first frame
         // of a video is very often black.
         const target = Number.isFinite(video.duration) && video.duration > 0
@@ -113,7 +131,7 @@ async function fromVideo(file: File): Promise<Blob | null> {
         try {
           video.currentTime = target;
         } catch {
-          done(video);
+          done(null);
         }
       };
 

@@ -21,6 +21,14 @@ export interface DeliveryRequest {
   contentType?: string;
   /** Lifetime of the presigned fallback. The CDN ticket has its own, longer, TTL. */
   fallbackTtlSeconds?: number;
+  /**
+   * Bind the link to this account, so copying it out of the browser gives away
+   * nothing. Set for a person's own files; omitted for share links.
+   *
+   * Only the CDN can enforce this. A presigned storage URL has no way to check who is
+   * asking, which is one more reason the fallback is a fallback.
+   */
+  userId?: string;
 }
 
 export interface Delivery {
@@ -49,6 +57,7 @@ export async function resolveDelivery(req: DeliveryRequest): Promise<Delivery> {
     disposition: req.disposition,
     filename: req.filename,
     contentType: req.contentType,
+    userId: req.userId,
   });
 
   if (viaCdn) {

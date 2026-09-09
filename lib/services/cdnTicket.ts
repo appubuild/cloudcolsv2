@@ -38,6 +38,15 @@ export interface TicketOptions {
   /** Sent as the filename when the disposition is attachment. */
   filename?: string;
   contentType?: string;
+  /**
+   * Who this link belongs to.
+   *
+   * When set, the URL stops being enough on its own: the worker also demands a signed
+   * cookie naming the same person, so an address copied out of the network tab and
+   * sent to someone else does nothing. Left empty for share assets, which are meant
+   * to be passed around.
+   */
+  userId?: string;
 }
 
 /**
@@ -55,11 +64,35 @@ export function canonicalTicket(o: TicketOptions): string {
     o.disposition,
     o.filename ?? "",
     o.contentType ?? "",
+    o.userId ?? "",
+  ].join("\n");
+}
+
+/**
+ * The field order from before the owner was part of a ticket.
+ *
+ * Kept so the worker still honours links the previous version of the app handed out,
+ * which stay valid for up to an hour after a deploy. Without it, shipping this would
+ * have broken every download already open in somebody's browser. Delete it once no
+ * such link can still be alive.
+ */
+export function canonicalTicketLegacy(o: TicketOptions): string {
+  return [
+    o.objectKey,
+    String(o.expiresAt),
+    o.deliveryClass,
+    o.disposition,
+    o.filename ?? "",
+    o.contentType ?? "",
   ].join("\n");
 }
 
 /** HMAC-SHA256 over the canonical string, hex. Web Crypto, so it runs in a Worker. */
-export async function signTicket(secret: string, o: TicketOptions): Promise<string> {
+export async function signTicket(
+  secret: string,
+  o: TicketOptions,
+  canonical: (t: TicketOptions) => string = canonicalTicket,
+): Promise<string> {
   const key = await crypto.subtle.importKey(
     "raw",
     new TextEncoder().encode(secret),
@@ -67,7 +100,7 @@ export async function signTicket(secret: string, o: TicketOptions): Promise<stri
     false,
     ["sign"],
   );
-  const sig = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(canonicalTicket(o)));
+  const sig = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(canonical(o)));
   return [...new Uint8Array(sig)].map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
@@ -90,6 +123,7 @@ export function ticketQuery(o: TicketOptions, signature: string): string {
   });
   if (o.filename) p.set("n", o.filename);
   if (o.contentType) p.set("ct", o.contentType);
+  if (o.userId) p.set("u", o.userId);
   return p.toString();
 }
 
@@ -113,6 +147,7 @@ export function parseTicket(params: URLSearchParams): { options: TicketOptions; 
       disposition,
       filename: params.get("n") ?? undefined,
       contentType: params.get("ct") ?? undefined,
+      userId: params.get("u") ?? undefined,
     },
     signature,
   };
