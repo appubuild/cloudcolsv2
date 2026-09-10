@@ -16,6 +16,7 @@ import { toast } from "@/lib/store/toast";
 import { filesRepo } from "@/lib/repositories";
 import { refreshFileViews } from "@/lib/query-client";
 import { makeThumbnail } from "./thumbnailer";
+import { mp4Faststart, looksLikeMp4 } from "./mp4Faststart";
 import { apiClient } from "@/lib/api/client";
 import { MULTIPART_PART_SIZE as PART_SIZE, UPLOAD_PART_CONCURRENCY } from "@/lib/storage/multipart";
 
@@ -80,11 +81,20 @@ async function uploadTask(task: UploadTask): Promise<void> {
     store.update(task.id, { uploadId: ticket.uploadId, fileId, status: "uploading" });
 
     // 2) Stream bytes directly to object storage — in parts when the server said so.
+    //
+    //    What goes up may be a reordered version of what was picked: a camera writes
+    //    an MP4's index at the end of the file, and a player cannot show a frame until
+    //    it has read that index, so streaming one means reaching past the whole file
+    //    before anything appears. Reordering it once here is what makes it start
+    //    immediately for everyone who ever watches it. Same bytes, same size — and if
+    //    anything about the file is unexpected, the original goes up untouched.
+    const body = await uploadBody(task);
+
     const mp = ticket as unknown as { multipart?: boolean; multipartUploadId?: string | null; partSizeBytes?: number };
-    if (mp.multipart && mp.multipartUploadId && task.file) {
-      await transferMultipart(task, fileId, mp.multipartUploadId, mp.partSizeBytes ?? PART_SIZE);
+    if (mp.multipart && mp.multipartUploadId && body) {
+      await transferMultipart(task, fileId, mp.multipartUploadId, mp.partSizeBytes ?? PART_SIZE, body);
     } else {
-      await transferBytes(task, ticket.presignedUrl);
+      await transferBytes(task, ticket.presignedUrl, body);
     }
 
     // 3) Confirm: server verifies object + size, sets status ready, syncs quota.
@@ -114,12 +124,33 @@ async function uploadTask(task: UploadTask): Promise<void> {
   }
 }
 
-async function transferBytes(task: UploadTask, presignedUrl: string): Promise<void> {
+/**
+ * The bytes to send for this task.
+ *
+ * Usually the picked file itself. For an MP4 whose index sits at the end, a Blob that
+ * presents the same content with the index in front — assembled from slices of the
+ * original, so nothing is copied into memory and a 338 MB video costs a few megabytes
+ * to rearrange.
+ *
+ * Silent either way. A file that cannot be reordered safely is not a problem the
+ * person uploading it has, and telling them about it would be noise about something
+ * that worked.
+ */
+async function uploadBody(task: UploadTask): Promise<Blob | undefined> {
+  const file = task.file;
+  if (!file) return undefined;
+  if (!looksLikeMp4(task.filename, task.mimeType ?? file.type)) return file;
+
+  const faster = await mp4Faststart(file);
+  return faster ? faster.blob : file;
+}
+
+async function transferBytes(task: UploadTask, presignedUrl: string, body?: Blob): Promise<void> {
   // If the presigned URL is a real https endpoint (API mode), issue an actual PUT
   // with the browser's File. Mock mode (sim.invalid URLs) falls back to simulated
   // chunk progress so the tray is fully operable without a backend.
   if (isRealPresign(presignedUrl)) {
-    await realPut(task, presignedUrl);
+    await realPut(task, presignedUrl, body);
     return;
   }
   await simulateChunks(task);
@@ -142,12 +173,12 @@ function isRealPresign(url: string): boolean {
  */
 const PUT_ATTEMPTS = 3;
 
-async function realPut(task: UploadTask, presignedUrl: string): Promise<void> {
+async function realPut(task: UploadTask, presignedUrl: string, body?: Blob): Promise<void> {
   let lastError: unknown;
 
   for (let attempt = 1; attempt <= PUT_ATTEMPTS; attempt += 1) {
     try {
-      await putOnce(task, presignedUrl);
+      await putOnce(task, presignedUrl, body);
       return;
     } catch (e) {
       lastError = e;
@@ -166,8 +197,8 @@ async function realPut(task: UploadTask, presignedUrl: string): Promise<void> {
   throw lastError;
 }
 
-async function putOnce(task: UploadTask, presignedUrl: string): Promise<void> {
-  const file = task.file;
+async function putOnce(task: UploadTask, presignedUrl: string, body?: Blob): Promise<void> {
+  const file = body ?? task.file;
   if (!file) {
     // Nothing to send. Better to fail loudly than to report a success that left
     // storage empty, which is exactly what the previous placeholder did.
@@ -380,8 +411,9 @@ async function transferMultipart(
   fileId: string,
   uploadId: string,
   partSize: number,
+  body?: Blob,
 ): Promise<void> {
-  const file = task.file!;
+  const file = body ?? task.file!;
   const total = file.size;
   const partCount = Math.max(1, Math.ceil(total / partSize));
   const completed: { partNumber: number; etag: string }[] = [];

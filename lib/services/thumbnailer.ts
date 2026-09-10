@@ -95,43 +95,70 @@ async function fromVideo(file: File): Promise<Blob | null> {
   const video = document.createElement("video");
   video.muted = true;
   video.playsInline = true;
-  video.preload = "metadata";
+  /*
+    "auto", not "metadata".
+
+    This is an object URL over a file already on disk, so preloading costs a local read
+    and no network at all — and "metadata" was the reason a frame sometimes never
+    arrived. The browser reads the header, stops, and whether a later seek produces a
+    decoded frame is then up to it. One 331 MB video failed twice in a row on a plain
+    H.264 High profile track with ordinary AAC audio; nothing about the file explained
+    it, because nothing about the file was wrong.
+
+    The backfill still asks for "metadata", because there the bytes come over the wire
+    and pulling more of a 900 MB film to draw a tile is the thing being avoided.
+  */
+  video.preload = "auto";
 
   try {
     const frame = await new Promise<HTMLVideoElement | null>((resolve) => {
-      // A codec the browser cannot decode never fires either event, so the whole
-      // thing is on a timer. Without it an unsupported video would hold the upload
+      // A codec the browser cannot decode fires no useful event at all, so the whole
+      // thing sits on a timer. Without it an undecodable video would hold the upload
       // queue open indefinitely.
       const timer = setTimeout(() => resolve(null), VIDEO_TIMEOUT_MS);
+      let settled = false;
       const done = (value: HTMLVideoElement | null) => {
+        if (settled) return;
+        settled = true;
         clearTimeout(timer);
         resolve(value);
       };
 
       video.onerror = () => done(null);
-      /*
-        `loadedmetadata`, not `loadeddata`.
 
-        This waited for `loadeddata`, which fires once a frame has been decoded — and
-        with `preload="metadata"` the browser reads the header and then stops, so that
-        frame is never decoded and the event may never come. Whether it did depended on
-        the browser and the file, which is why two videos uploaded three minutes apart
-        got one thumbnail between them.
+      /**
+       * Whether a frame is actually there to draw.
+       *
+       * `seeked` says the seek finished, not that a picture has been decoded, and
+       * drawing too early gives a blank canvas. `HAVE_CURRENT_DATA` is the readyState
+       * that means there is one.
+       */
+      const drawWhenReady = () => {
+        if (video.readyState >= 2) done(video);
+      };
 
-        `loadedmetadata` is the event `preload="metadata"` actually promises. The seek
-        below is what then forces a frame, and `seeked` is what says it is ready.
-      */
       video.onloadedmetadata = () => {
-        // A frame one second in, or the middle of anything shorter. The first frame
-        // of a video is very often black.
-        const target = Number.isFinite(video.duration) && video.duration > 0
-          ? Math.min(1, video.duration / 2)
-          : 0;
-        video.onseeked = () => done(video);
+        // A frame one second in, or the middle of anything shorter. The first frame of
+        // a video is very often black, which makes a thumbnail that looks broken.
+        const duration = video.duration;
+        const target =
+          Number.isFinite(duration) && duration > 0 ? Math.min(1, duration / 2) : 0.1;
+
+        video.onseeked = drawWhenReady;
+        // Every one of these can be the moment the picture appears, and which fires
+        // varies by browser and by file. Whichever comes first wins; `done` ignores
+        // the rest.
+        video.onloadeddata = drawWhenReady;
+        video.oncanplay = drawWhenReady;
+        video.ontimeupdate = drawWhenReady;
+
         try {
-          video.currentTime = target;
+          // Setting currentTime to the value it already holds fires no `seeked` at
+          // all, so a target of exactly 0 could wait out the whole timeout.
+          video.currentTime = Math.abs(video.currentTime - target) < 0.001 ? target + 0.05 : target;
         } catch {
-          done(null);
+          // Seeking refused: the current frame, if there is one, is still worth having.
+          drawWhenReady();
         }
       };
 
