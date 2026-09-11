@@ -67,6 +67,18 @@ export interface Env {
   B2_SECRET_ACCESS_KEY: string;
   /** Shared with the app. Whoever holds it can mint a read capability for any object. */
   CDN_TICKET_SECRET: string;
+  /**
+   * A second secret, accepted alongside the first.
+   *
+   * Rotating one shared secret across two Workers is otherwise an outage: whichever is
+   * updated first disagrees with the other until the second catches up, and every link
+   * in between fails. With this, the new secret is added here, the app is moved to it,
+   * and only then is this one folded into CDN_TICKET_SECRET and removed — no moment at
+   * which a valid link is refused.
+   *
+   * Unset in normal operation.
+   */
+  CDN_TICKET_SECRET_NEXT?: string;
   /** Comma-separated origins allowed to read these URLs from script. Optional. */
   CDN_ALLOWED_ORIGINS?: string;
 }
@@ -133,10 +145,21 @@ export default {
 
     const { options: ticket, signature } = parsed;
 
+    // Every secret currently in service. One in normal operation; two while one is
+    // being rotated.
+    const secrets = [env.CDN_TICKET_SECRET, env.CDN_TICKET_SECRET_NEXT].filter(
+      (s): s is string => Boolean(s),
+    );
+
     // Signature before expiry: checking expiry first would answer "this key existed"
     // for an unsigned guess.
-    const expected = await signTicket(env.CDN_TICKET_SECRET, ticket);
-    let valid = signaturesMatch(expected, signature);
+    let valid = false;
+    for (const secret of secrets) {
+      if (signaturesMatch(await signTicket(secret, ticket), signature)) {
+        valid = true;
+        break;
+      }
+    }
 
     if (!valid && !ticket.userId) {
       // A link handed out by the version of the app that signed without an owner
@@ -144,8 +167,12 @@ export default {
       // would break every download already open in somebody's browser. An old-format
       // ticket can no more be forged than a new one — it is the same secret — it just
       // carries no owner, so nothing is bound to check it against.
-      const legacy = await signTicket(env.CDN_TICKET_SECRET, ticket, canonicalTicketLegacy);
-      valid = signaturesMatch(legacy, signature);
+      for (const secret of secrets) {
+        if (signaturesMatch(await signTicket(secret, ticket, canonicalTicketLegacy), signature)) {
+          valid = true;
+          break;
+        }
+      }
     }
 
     if (!valid) return text("This link is not valid.", 403, request, env);
@@ -165,10 +192,12 @@ export default {
      * around is what they are for.
      */
     if (ticket.userId) {
-      const cookie = await verifyDeliveryCookie(
-        env.CDN_TICKET_SECRET,
-        readCookie(request.headers.get("cookie"), DELIVERY_COOKIE),
-      );
+      const presented = readCookie(request.headers.get("cookie"), DELIVERY_COOKIE);
+      let cookie = null;
+      for (const secret of secrets) {
+        cookie = await verifyDeliveryCookie(secret, presented);
+        if (cookie) break;
+      }
       if (!cookie || cookie.userId !== ticket.userId) {
         return text("This link only works for the account it was issued to.", 403, request, env);
       }
@@ -262,7 +291,38 @@ async function deliver(
   const ifModifiedSince = request.headers.get("if-modified-since");
   if (ifModifiedSince) forward.set("if-modified-since", ifModifiedSince);
 
-  const upstream = await fetch(signed, { method: request.method, headers: forward });
+  /**
+   * Cloudflare must not put its own cache between this worker and B2.
+   *
+   * Measured against the live bucket, reading 256 KB out of a 338 MB object:
+   *
+   *     offset   via this worker   straight from B2
+   *        0%            1 388 ms            1 005 ms
+   *       25%           10 160 ms            1 028 ms
+   *       50%           18 937 ms              926 ms
+   *       90%           32 902 ms              939 ms
+   *
+   * B2 is flat at any offset; the worker grew linearly with it. That shape is the
+   * signature of something reading from the start of the object and discarding bytes
+   * until it reaches the range — which is what the edge cache does when it decides to
+   * fill itself from a ranged subrequest. Seeking to the middle of a long video cost
+   * nineteen seconds because of it.
+   *
+   * Nothing is lost by switching it off. Private originals are never cached anyway,
+   * and the classes that are use the Cache API explicitly, further down, with a key
+   * this worker controls — the presigned URL here carries a fresh signature every
+   * time, so it could never have been a cache hit regardless.
+   */
+  const upstreamStarted = Date.now();
+  const upstream = await fetch(signed, {
+    method: request.method,
+    headers: forward,
+    // Bypass Cloudflare's own cache layer for this subrequest entirely. Without it the
+    // Range header never reaches B2: Cloudflare fetches the object from byte zero,
+    // hands back synthesised 206 headers at once, and then reads and discards
+    // everything before the requested offset — ten seconds per 100 MB of seek.
+    cache: "no-store",
+  });
 
   if (!upstream.ok && upstream.status !== 206 && upstream.status !== 304) {
     // B2's XML error body names the bucket and key. Nothing there is the reader's to
@@ -300,6 +360,17 @@ async function deliver(
   // something executable.
   headers.set("x-content-type-options", "nosniff");
   headers.set("x-cdn-cache", cacheable ? "MISS" : "BYPASS");
+  /**
+   * How long storage took to answer, and what it answered with.
+   *
+   * Here because a ranged read was measured at 19 seconds through this worker and
+   * 1 second straight from the bucket, and no amount of reading the code settled
+   * where the difference lived. A number the worker reports itself is the only thing
+   * that can.
+   */
+  headers.set("x-upstream-ms", String(Date.now() - upstreamStarted));
+  headers.set("x-upstream-status", String(upstream.status));
+  headers.set("x-upstream-length", upstream.headers.get("content-length") ?? "-");
   applyCors(headers, request, env);
 
   if (request.method === "HEAD" || upstream.status === 304 || !upstream.body) {
