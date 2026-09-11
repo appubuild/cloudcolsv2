@@ -34,6 +34,7 @@ export function FileThumb({
   alt,
   className,
   hasThumbnail,
+  src,
 }: {
   fileId: string;
   category: FileCategory;
@@ -41,6 +42,13 @@ export function FileThumb({
   className?: string;
   /** Whether the file has a stored derivative. */
   hasThumbnail?: boolean;
+  /**
+   * A signed URL for that derivative, when the listing already supplied one.
+   *
+   * This is the difference between a grid that draws and a grid that first asks the
+   * API forty times what its own pictures are called.
+   */
+  src?: string | null;
 }) {
   const [failed, setFailed] = useState(false);
   const stored = Boolean(hasThumbnail);
@@ -53,22 +61,24 @@ export function FileThumb({
   const showsOriginal = isImage && !stored;
   const backfills = (isImage || isVideo || isPdf) && !stored;
 
-  const wantsUrl = (stored || showsOriginal || backfills) && !failed;
+  // Nothing to fetch when the listing handed the URL over, which is the common case.
+  const wantsUrl = !src && (stored || showsOriginal || backfills) && !failed;
   // "source" rather than "full": this is the app reading bytes to make a derivative,
   // not the person opening a file, and Recent Access should not fill up with tiles
   // that happened to scroll past.
   const variant = stored ? "thumb" : "source";
   const { data } = useFileUrl(fileId, wantsUrl, variant);
+  const pictureUrl = src ?? data?.url ?? null;
 
   // One attempt per file per page, whatever else re-renders.
   const attempted = useRef(false);
   useEffect(() => {
-    if (!backfills || !data?.url || attempted.current) return;
+    if (!backfills || src || !data?.url || attempted.current) return;
     attempted.current = true;
     void backfillThumbnail(fileId, data.url, isVideo ? "video" : isPdf ? "pdf" : "image");
-  }, [backfills, data?.url, fileId, isVideo, isPdf]);
+  }, [backfills, src, data?.url, fileId, isVideo, isPdf]);
 
-  const showsPicture = (stored || showsOriginal) && !failed && Boolean(data?.url);
+  const showsPicture = (stored || showsOriginal) && !failed && Boolean(pictureUrl);
 
   if (!showsPicture) {
     return <CategoryThumb category={category} className={className} />;
@@ -84,7 +94,7 @@ export function FileThumb({
       {/* eslint-disable-next-line @next/next/no-img-element -- a short-lived signed
           URL on a third-party origin; the Next image optimiser cannot fetch it. */}
       <img
-        src={data!.url}
+        src={pictureUrl!}
         alt={alt}
         loading="lazy"
         decoding="async"

@@ -17,6 +17,7 @@ import { apiClient } from "@/lib/api/client";
 import { THUMBNAIL_MAX_EDGE, THUMBNAIL_QUALITY } from "@/lib/storage/derivatives";
 import { pdfFirstPageThumbnail } from "./pdfThumbnail";
 import { deliveryCredentials, deliveryCrossOrigin } from "./deliveryFetch";
+import { videoThumbnailFromUrl, type MediaThumbnail } from "./thumbnailer";
 
 /** Files this tab has already tried, so a re-render does not try again. */
 const attempted = new Set<string>();
@@ -71,7 +72,7 @@ async function encode(source: CanvasImageSource, width: number, height: number):
  * A canvas drawn from a cross-origin image without CORS is tainted, and toBlob on a
  * tainted canvas throws. Fetching the bytes and decoding them keeps the canvas clean.
  */
-async function shrinkImage(url: string): Promise<Blob | null> {
+async function shrinkImage(url: string): Promise<MediaThumbnail | null> {
   try {
     const res = await fetch(url, { credentials: deliveryCredentials(url) });
     if (!res.ok) return null;
@@ -84,7 +85,10 @@ async function shrinkImage(url: string): Promise<Blob | null> {
       return null;
     }
     try {
-      return await encode(bitmap, bitmap.width, bitmap.height);
+      const blob = await encode(bitmap, bitmap.width, bitmap.height);
+      return blob
+        ? { blob, width: bitmap.width, height: bitmap.height, durationSeconds: null }
+        : null;
     } finally {
       bitmap.close();
     }
@@ -96,69 +100,37 @@ async function shrinkImage(url: string): Promise<Blob | null> {
 /**
  * Grabs a frame from a video that is still in storage.
  *
- * This is the one place the range support added to the CDN pays off directly. The
- * video element is given a URL, not a file: it fetches the header, seeks, and pulls
- * only the bytes around the frame it needs. A 900 MB film costs a few megabytes to
- * take a picture of, which is the difference between this being reasonable and being
- * the exact thing the brief forbids — sending a whole original to draw a 100 px tile.
+ * The same capture the upload path uses — early candidate timestamps, a check that the
+ * frame is not simply blank, and the shape and length read off the decoder — differing
+ * only in how the bytes arrive. `preload="metadata"` because they come over the wire:
+ * the element fetches the header, seeks, and pulls only what the frame needs, so a
+ * 900 MB film costs a few megabytes to take a picture of rather than all of it.
  *
- * `crossOrigin` is required, not cosmetic: without it the canvas is tainted by the
- * draw and the encode throws. It works because the delivery worker sends CORS headers;
- * against a bare storage URL it may not, and then this quietly gives up.
+ * That ranging is only possible because the delivery worker honours Range, and the
+ * canvas is only readable because the URL allows this origin with credentials.
  */
-async function frameFromVideo(url: string): Promise<Blob | null> {
-  const video = document.createElement("video");
-  // "use-credentials" where the link is bound to the account, because "anonymous"
-  // sends no cookie and the CDN would refuse. Still a CORS load either way — without
-  // the attribute the canvas is tainted and encoding the frame throws.
-  video.crossOrigin = deliveryCrossOrigin(url);
-  video.muted = true;
-  video.playsInline = true;
-  video.preload = "metadata";
+async function frameFromVideo(url: string): Promise<MediaThumbnail | null> {
+  return videoThumbnailFromUrl(url, {
+    crossOrigin: deliveryCrossOrigin(url),
+    preload: "metadata",
+  });
+}
 
-  try {
-    const frame = await new Promise<HTMLVideoElement | null>((resolve) => {
-      // A codec the browser cannot decode fires neither event, so everything is on a
-      // timer. Without it one unplayable file would hold the queue of one forever.
-      const timer = setTimeout(() => resolve(null), VIDEO_TIMEOUT_MS);
-      const done = (value: HTMLVideoElement | null) => {
-        clearTimeout(timer);
-        resolve(value);
-      };
-
-      video.onerror = () => done(null);
-      video.onloadedmetadata = () => {
-        // A second in, or the middle of anything shorter. The first frame of a video
-        // is very often black, which makes a thumbnail that looks broken.
-        const target =
-          Number.isFinite(video.duration) && video.duration > 0 ? Math.min(1, video.duration / 2) : 0;
-        video.onseeked = () => done(video);
-        try {
-          video.currentTime = target;
-        } catch {
-          done(null);
-        }
-      };
-
-      video.src = url;
-    });
-
-    if (!frame || !frame.videoWidth) return null;
-    return await encode(frame, frame.videoWidth, frame.videoHeight);
-  } catch {
-    return null;
-  } finally {
-    video.removeAttribute("src");
-    try {
-      video.load();
-    } catch {
-      /* releasing the decoder is best-effort too */
-    }
-  }
+/** Reads whatever kind of source this is and returns a thumbnail plus what it learnt. */
+async function capture(kind: "image" | "video" | "pdf", url: string): Promise<MediaThumbnail | null> {
+  if (kind === "video") return frameFromVideo(url);
+  if (kind === "image") return shrinkImage(url);
+  // The URL rather than the bytes: pdf.js ranges into it and reads only what the first
+  // page needs, so a large document is not downloaded to draw a tile. A page has no
+  // duration, and its pixel size is the rendering's rather than the document's, so
+  // nothing is recorded about it.
+  const blob = await pdfFirstPageThumbnail({ url });
+  return blob ? { blob, width: null, height: null, durationSeconds: null } : null;
 }
 
 /** Uploads a generated derivative to the key the server chooses for this file. */
-async function store(fileId: string, blob: Blob): Promise<void> {
+async function store(fileId: string, shot: MediaThumbnail): Promise<void> {
+  const blob = shot.blob;
   // The server computes the destination from the file's own object key; nothing about
   // where this lands comes from here.
   const ticket = await apiClient.post<{ presignedUrl: string; maxBytes: number }>(
@@ -171,8 +143,13 @@ async function store(fileId: string, blob: Blob): Promise<void> {
   if (!put.ok) return;
 
   // Confirmed separately, so a thumbnail_url is only recorded for an object that is
-  // really there.
-  await apiClient.put(`/api/files/${fileId}/thumbnail`, {});
+  // really there. The shape and length go with it — the decoder had to read them to
+  // draw the frame, and recording them saves every later reader a trip to storage.
+  await apiClient.put(`/api/files/${fileId}/thumbnail`, {
+    width: shot.width,
+    height: shot.height,
+    durationSeconds: shot.durationSeconds,
+  });
 }
 
 /**
@@ -203,16 +180,9 @@ export async function backfillThumbnail(
   else imagesInFlight += 1;
 
   try {
-    const blob =
-      kind === "video"
-        ? await frameFromVideo(url)
-        : kind === "pdf"
-          // The URL rather than the bytes: pdf.js ranges into it and reads only what
-          // the first page needs, so a large document is not downloaded to draw a tile.
-          ? await pdfFirstPageThumbnail({ url })
-          : await shrinkImage(url);
-    if (!blob) return;
-    await store(fileId, blob);
+    const shot = await capture(kind, url);
+    if (!shot) return;
+    await store(fileId, shot);
   } catch {
     // Leave the file as it was.
   } finally {

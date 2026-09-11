@@ -66,11 +66,46 @@ export const PUT = handler(async (req: Request, ctx?: { params: Promise<Params> 
     throw new ApiError("THUMBNAIL_TOO_LARGE", 413, "That thumbnail is too large.");
   }
 
+  /**
+   * The media's shape and length, as the browser measured it.
+   *
+   * Client-supplied, so it is input rather than fact: clamped here and constrained
+   * again by the column checks, because something will eventually divide by a duration
+   * and a negative one should never have been stored. Anything unusable is simply not
+   * recorded — it is a convenience, not part of the file.
+   */
+  const body = (await req.json().catch(() => ({}))) as {
+    width?: unknown;
+    height?: unknown;
+    durationSeconds?: unknown;
+  };
+  const pixels = (value: unknown): number | null => {
+    const n = typeof value === "number" ? Math.round(value) : NaN;
+    return Number.isFinite(n) && n > 0 && n <= 100_000 ? n : null;
+  };
+  const seconds = (value: unknown): number | null => {
+    const n = typeof value === "number" ? value : NaN;
+    // A week, which no preview is, and the ceiling the column enforces anyway.
+    return Number.isFinite(n) && n >= 0 && n <= 604_800 ? Math.round(n * 1000) / 1000 : null;
+  };
+
+  const width = pixels(body.width);
+  const height = pixels(body.height);
+  const durationSeconds = seconds(body.durationSeconds);
+
   // The key, not a URL. Where it can be read from depends on whether a CDN is
   // configured, and that is a delivery decision made at read time — a URL baked in
   // here would be wrong the moment the CDN is turned on.
-  const { error } = await admin.from("files").update({ thumbnail_url: key }).eq("id", id);
+  const { error } = await admin
+    .from("files")
+    .update({
+      thumbnail_url: key,
+      ...(width !== null ? { width } : {}),
+      ...(height !== null ? { height } : {}),
+      ...(durationSeconds !== null ? { duration_seconds: durationSeconds } : {}),
+    })
+    .eq("id", id);
   if (error) throw new ApiError("UPDATE_FAILED", 500, error.message);
 
-  return { objectKey: key, sizeBytes: head.sizeBytes };
+  return { objectKey: key, sizeBytes: head.sizeBytes, width, height, durationSeconds };
 });

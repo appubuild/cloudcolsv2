@@ -107,6 +107,7 @@ export function FileCard({
               category={file.category}
               alt={file.originalFilename}
               hasThumbnail={Boolean(file.thumbnailUrl)}
+              src={file.thumbnailSrc}
               className="h-[104px] w-full rounded-md"
             />
           )}
@@ -174,6 +175,7 @@ function categoryMedia(file: FileType, size = 6) {
       category={file.category}
       alt={file.originalFilename}
       hasThumbnail={Boolean(file.thumbnailUrl)}
+      src={file.thumbnailSrc}
       className={cn("h-11 w-11", size === 8 && "h-8 w-8")}
     />
   );

@@ -69,7 +69,35 @@ export interface File {
   mimeType: string;
   category: FileCategory; // backend-authoritative
   sizeBytes: number;
+  /**
+   * The storage key of the generated thumbnail, or null when there is none.
+   *
+   * A key, not a URL, despite the name — it is what the server needs to fetch the
+   * derivative, and it is never useful to a browser on its own.
+   */
   thumbnailUrl: string | null;
+  /**
+   * A signed URL the browser can put straight into an <img>.
+   *
+   * Minted by the listing that returned this file, so drawing a grid costs no extra
+   * requests at all. Before this, every tile asked the API for its own signed URL:
+   * a folder of forty files meant forty round trips, each one a database read and a
+   * signature, before a single picture appeared.
+   *
+   * Absent when the file has no thumbnail yet, or when the endpoint that produced it
+   * does not mint them.
+   */
+  thumbnailSrc?: string | null;
+  /**
+   * Shape and length of the media, recorded when it was uploaded.
+   *
+   * Held so a listing can reserve the right space and a player can show a duration
+   * without asking storage for the file's header first. Null for anything that is not
+   * a video, and for videos uploaded before this was recorded.
+   */
+  width?: number | null;
+  height?: number | null;
+  durationSeconds?: number | null;
   checksum: string | null;
   status: FileStatus;
   isFavorite: boolean;

@@ -2,6 +2,7 @@ import "server-only";
 import { handler, requireUser } from "@/lib/api/auth";
 import { createAdminClient } from "@/lib/supabase/server";
 import { mapFile, mapFolder } from "@/lib/api/mappers";
+import { withThumbnailUrls } from "@/lib/api/thumbnailUrls";
 
 export const dynamic = "force-dynamic";
 
@@ -67,7 +68,13 @@ export const GET = handler(async (req: Request) => {
   const { data: files, error } = await query.range((page - 1) * pageSize, page * pageSize - 1);
   if (error) throw error;
 
-  const mappedFiles = (files ?? []).map((r) => mapFile(r as Record<string, unknown>));
+  // Signed thumbnail URLs come back with the list, so the grid draws without asking
+  // for one per tile. See lib/api/thumbnailUrls.ts for what that used to cost.
+  const mappedFiles = await withThumbnailUrls(
+    req,
+    user.id,
+    (files ?? []).map((r) => mapFile(r as Record<string, unknown>)),
+  );
   const mappedFolders = (folders ?? [])
     .map((r) => mapFolder(r as Record<string, unknown>))
     // Pinned folders first, whatever the chosen sort. Pinning exists to put a

@@ -339,8 +339,8 @@ async function attachThumbnail(fileId: string, file: File | undefined): Promise<
   if (!renderable) return;
 
   try {
-    const blob = await makeThumbnail(file);
-    if (!blob) return;
+    const shot = await makeThumbnail(file);
+    if (!shot) return;
 
     // The server decides the key from the file's own object key; nothing about the
     // destination comes from here.
@@ -348,14 +348,22 @@ async function attachThumbnail(fileId: string, file: File | undefined): Promise<
       `/api/files/${fileId}/thumbnail`,
       {},
     );
-    if (blob.size > ticket.maxBytes) return;
+    if (shot.blob.size > ticket.maxBytes) return;
 
-    const res = await fetch(ticket.presignedUrl, { method: "PUT", body: blob });
+    const res = await fetch(ticket.presignedUrl, { method: "PUT", body: shot.blob });
     if (!res.ok) return;
 
     // Confirmed separately, so a thumbnail_url is only ever recorded for an object
     // that is genuinely there — the failure the old background job made routine.
-    await apiClient.put(`/api/files/${fileId}/thumbnail`, {});
+    //
+    // The shape and length ride along, because the browser had to decode the media to
+    // draw the frame and so already knows them. Recording them here is what stops a
+    // listing or a player asking storage for a file header just to learn a duration.
+    await apiClient.put(`/api/files/${fileId}/thumbnail`, {
+      width: shot.width,
+      height: shot.height,
+      durationSeconds: shot.durationSeconds,
+    });
     refreshFileViews();
   } catch {
     // Thumbnails are an optimisation. Nothing here is worth failing an upload over.

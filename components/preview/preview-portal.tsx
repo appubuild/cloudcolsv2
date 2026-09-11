@@ -8,6 +8,7 @@ import { useAuthStore } from "@/lib/store/auth";
 import { Spinner, Badge } from "@/components/ui/misc";
 import { CategoryThumb } from "@/components/files/category-thumb";
 import { TextEditor } from "./text-editor";
+import { VideoPlayer } from "./video-player";
 import { isTextEditable, TEXT_EDIT_MAX_BYTES } from "@/lib/services/fileTypes";
 import { useFileUrl } from "@/lib/hooks/useFileUrl";
 import { formatBytes } from "@/lib/utils";
@@ -214,27 +215,17 @@ function FileRenderer({ file, startEditing }: { file: File; startEditing?: boole
 
   if (cat === "video") {
     return (
-      /*
-        preload="auto" because opening the preview *is* the intent to watch.
-        "metadata" reads the header, then stops and waits for a click on play — so the
-        buffering everyone waits through only begins after that click. Starting it when
-        the player appears spends the same bytes a moment earlier, on a file the person
-        has already chosen. Still ranged, so it is a buffer and not a download.
-
-        It does not fix a slow start on its own. A GoPro MP4 puts its `moov` index at
-        the end of the file, so the browser must reach past the whole thing before it
-        can decode a frame, whatever it preloads.
-      */
-      <video
-        className="max-h-full max-w-full rounded-lg"
-        controls
-        preload="auto"
-        playsInline
-        poster={poster.data?.url}
+      <VideoPlayer
         src={url}
-      >
-        Your browser does not support video playback.
-      </video>
+        // The real first frame, already in the browser's cache because the grid drew
+        // this same URL — so something appears the instant the dialog opens, rather
+        // than a black rectangle while the file works out how to start.
+        poster={poster.data?.url}
+        filename={file.originalFilename}
+        durationSeconds={file.durationSeconds}
+        width={file.width}
+        height={file.height}
+      />
     );
   }
 

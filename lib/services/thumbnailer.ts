@@ -2,36 +2,38 @@
 
 // Making a small version of a file, in the browser, before it is uploaded.
 //
-// Cloudflare Workers cannot resize an image: no ffmpeg, no native binaries, and
-// Media Transformations only handles h.264 MP4 up to 40 MB. The browser already has
-// the file in memory and already has a decoder for everything it can display, so it
-// is the cheapest place this can happen — and it costs the server nothing at all.
+// Cloudflare Workers cannot resize an image: no ffmpeg, no native binaries, and Media
+// Transformations only handles h.264 MP4 up to 40 MB. The browser already has the file
+// in memory and already has a decoder for everything it can display, so it is the
+// cheapest place this can happen — and it costs the server nothing at all.
 //
 // Everything here fails soft. A thumbnail is an optimisation; a file that cannot
-// produce one uploads perfectly well and falls back to its category icon. Nothing
-// in this module is allowed to make an upload fail.
+// produce one uploads perfectly well and falls back to its category tile. Nothing in
+// this module is allowed to make an upload fail.
+//
+// For video it takes an *early* frame and never scans forward looking for one. The
+// candidates below are all within the first few seconds, tried in order, and the first
+// that yields a picture with something in it wins. A file whose frames are all
+// undecodable gives up after the timeout rather than working through the whole thing.
 
 import { THUMBNAIL_MAX_EDGE, THUMBNAIL_QUALITY } from "@/lib/storage/derivatives";
 import { pdfFirstPageThumbnail } from "./pdfThumbnail";
 
-/**
- * How long to wait for a video to decode a frame before giving up on it.
- *
- * Twelve seconds rather than eight: a 300 MB file has to be indexed and seeked before
- * a frame exists, and a thumbnail that times out is indistinguishable from one that
- * was never possible.
- */
+/** How long to give a video to produce a frame before abandoning it. */
 const VIDEO_TIMEOUT_MS = 12_000;
 
-/**
- * The largest PDF that will be rasterised from memory during an upload.
- *
- * Unlike images and video, which are read through an object URL and decoded in
- * pieces, a PDF has to be handed to pdf.js as bytes — so the whole file lands in the
- * tab's memory. Above this the thumbnail is left to the backfill, which reads the
- * same document from storage with range requests and touches only the first page.
- */
+/** The largest PDF that will be rasterised from memory during an upload. */
 const PDF_INLINE_MAX_BYTES = 64 * 1024 * 1024;
+
+/**
+ * Where to look for a frame, in seconds, in order.
+ *
+ * All early, because the point is a picture of the video rather than a picture of a
+ * particular moment in it, and because reaching further in costs more to decode.
+ * Several of them because the first frame of a recording is very often black — a fade
+ * in, a lens cap, a camera still metering — and a black tile reads as a broken one.
+ */
+const FRAME_CANDIDATES = [0.1, 1, 3, 0];
 
 /** Scale so the longest edge is at most `max`, never scaling up. */
 function fit(width: number, height: number, max: number): { w: number; h: number } {
@@ -40,33 +42,93 @@ function fit(width: number, height: number, max: number): { w: number; h: number
   return { w: Math.max(1, Math.round(width * scale)), h: Math.max(1, Math.round(height * scale)) };
 }
 
-async function toWebp(source: CanvasImageSource, width: number, height: number): Promise<Blob | null> {
+/** What a successful capture yields: the picture, and what the source turned out to be. */
+export interface MediaThumbnail {
+  blob: Blob;
+  width: number | null;
+  height: number | null;
+  durationSeconds: number | null;
+}
+
+interface Drawn {
+  blob: Blob | null;
+  /** True when every sampled pixel is the same — a frame that had not arrived yet. */
+  blank: boolean;
+}
+
+/**
+ * Draws a source down to thumbnail size and encodes it.
+ *
+ * Also reports whether the result is a single flat colour. That is what an empty
+ * decoder buffer looks like, and it is worth another timestamp rather than storing a
+ * black rectangle and calling the file done.
+ */
+async function encode(source: CanvasImageSource, width: number, height: number): Promise<Drawn> {
   const { w, h } = fit(width, height, THUMBNAIL_MAX_EDGE);
-  if (!w || !h) return null;
+  if (!w || !h) return { blob: null, blank: true };
 
   const canvas = document.createElement("canvas");
   canvas.width = w;
   canvas.height = h;
-  const ctx = canvas.getContext("2d");
-  if (!ctx) return null;
+  const ctx = canvas.getContext("2d", { willReadFrequently: true });
+  if (!ctx) return { blob: null, blank: true };
   ctx.drawImage(source, 0, 0, w, h);
 
-  return new Promise<Blob | null>((resolve) => {
-    // WebP everywhere it is supported; browsers that do not know it hand back PNG,
-    // which is bigger but still far smaller than the original. The key says .webp
-    // either way — it names the derivative, not a guarantee about the codec.
-    canvas.toBlob((blob) => resolve(blob), "image/webp", THUMBNAIL_QUALITY);
+  let blank = false;
+  try {
+    blank = isFlat(ctx, w, h);
+  } catch {
+    // A tainted canvas cannot be sampled. Not knowing is not a reason to reject the
+    // picture — it just means the emptiness check is unavailable here.
+  }
+
+  const blob = await new Promise<Blob | null>((resolve) => {
+    try {
+      // WebP everywhere it is supported; browsers that do not know it hand back PNG,
+      // which is bigger but still far smaller than the original. The key says .webp
+      // either way — it names the derivative, not a guarantee about the codec.
+      canvas.toBlob((b) => resolve(b), "image/webp", THUMBNAIL_QUALITY);
+    } catch {
+      resolve(null);
+    }
   });
+
+  return { blob, blank };
 }
 
-async function fromImage(file: File): Promise<Blob | null> {
+/** Whether every sampled pixel is the same colour. Sampled, not exhaustive: a 512 px
+ *  tile is a quarter of a million pixels and a grid of a few hundred answers it. */
+function isFlat(ctx: CanvasRenderingContext2D, w: number, h: number): boolean {
+  const step = Math.max(1, Math.floor(Math.min(w, h) / 12));
+  const first = ctx.getImageData(0, 0, 1, 1).data;
+  for (let y = 0; y < h; y += step) {
+    for (let x = 0; x < w; x += step) {
+      const px = ctx.getImageData(x, y, 1, 1).data;
+      // A tolerance, because compression and colour management move flat areas by a
+      // point or two without making them interesting.
+      if (
+        Math.abs(px[0]! - first[0]!) > 6 ||
+        Math.abs(px[1]! - first[1]!) > 6 ||
+        Math.abs(px[2]! - first[2]!) > 6
+      ) {
+        return false;
+      }
+    }
+  }
+  return true;
+}
+
+async function fromImage(file: Blob): Promise<MediaThumbnail | null> {
   // createImageBitmap decodes off the main thread and handles orientation, which
   // <img> does not without extra work.
   if (typeof createImageBitmap === "function") {
     let bitmap: ImageBitmap | null = null;
     try {
       bitmap = await createImageBitmap(file);
-      return await toWebp(bitmap, bitmap.width, bitmap.height);
+      const drawn = await encode(bitmap, bitmap.width, bitmap.height);
+      return drawn.blob
+        ? { blob: drawn.blob, width: bitmap.width, height: bitmap.height, durationSeconds: null }
+        : null;
     } catch {
       return null;
     } finally {
@@ -82,7 +144,10 @@ async function fromImage(file: File): Promise<Blob | null> {
       el.onerror = () => reject(new Error("decode failed"));
       el.src = url;
     });
-    return await toWebp(img, img.naturalWidth, img.naturalHeight);
+    const drawn = await encode(img, img.naturalWidth, img.naturalHeight);
+    return drawn.blob
+      ? { blob: drawn.blob, width: img.naturalWidth, height: img.naturalHeight, durationSeconds: null }
+      : null;
   } catch {
     return null;
   } finally {
@@ -90,89 +155,134 @@ async function fromImage(file: File): Promise<Blob | null> {
   }
 }
 
-async function fromVideo(file: File): Promise<Blob | null> {
-  const url = URL.createObjectURL(file);
+/** Resolves once the element has metadata, or null if it never will. */
+function loadMetadata(video: HTMLVideoElement, url: string, deadline: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => resolve(false), Math.max(0, deadline - Date.now()));
+    const settle = (ok: boolean) => {
+      clearTimeout(timer);
+      resolve(ok);
+    };
+    video.onerror = () => settle(false);
+    video.onloadedmetadata = () => settle(true);
+    video.src = url;
+  });
+}
+
+/**
+ * Seeks to `seconds` and waits for a frame to actually exist there.
+ *
+ * `seeked` says the seek finished, not that a picture has been decoded, so this also
+ * requires `readyState` to say there is current data. Several events can be the moment
+ * that becomes true and which one fires varies by browser and by file, so it listens
+ * for all of them and takes whichever arrives.
+ */
+function seekAndWait(video: HTMLVideoElement, seconds: number, deadline: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    const remaining = deadline - Date.now();
+    if (remaining <= 0) return resolve(false);
+
+    const timer = setTimeout(() => settle(false), remaining);
+    let done = false;
+    function settle(ok: boolean) {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      video.onseeked = null;
+      video.onloadeddata = null;
+      video.oncanplay = null;
+      video.ontimeupdate = null;
+      resolve(ok);
+    }
+
+    const check = () => {
+      if (video.readyState >= 2) settle(true);
+    };
+    video.onseeked = check;
+    video.onloadeddata = check;
+    video.oncanplay = check;
+    video.ontimeupdate = check;
+
+    try {
+      // Setting currentTime to the value it already holds fires no event at all, so a
+      // target that happens to match would wait out the whole deadline.
+      video.currentTime = Math.abs(video.currentTime - seconds) < 0.001 ? seconds + 0.05 : seconds;
+    } catch {
+      check();
+    }
+  });
+}
+
+/**
+ * A frame from early in a video, and the video's shape and length.
+ *
+ * `source` is an object URL. For an upload that is the local file, so preloading is a
+ * disk read and nothing more — which is why it asks for `auto` rather than `metadata`.
+ * Only asking for metadata was what made a decoded frame uncertain, and it cost one
+ * 331 MB video its thumbnail twice in a row on a perfectly ordinary H.264 track.
+ */
+export async function videoThumbnailFromUrl(
+  url: string,
+  opts: { crossOrigin?: "anonymous" | "use-credentials"; preload?: "auto" | "metadata" } = {},
+): Promise<MediaThumbnail | null> {
   const video = document.createElement("video");
   video.muted = true;
   video.playsInline = true;
-  /*
-    "auto", not "metadata".
+  // Local file: preload freely, it is a disk read. Remote: only the header, because
+  // pulling more of a 900 MB film to draw a tile is the thing being avoided.
+  video.preload = opts.preload ?? "auto";
+  // Required, not cosmetic, when the bytes are remote: without it the canvas is
+  // tainted by the draw and encoding the frame throws.
+  if (opts.crossOrigin) video.crossOrigin = opts.crossOrigin;
 
-    This is an object URL over a file already on disk, so preloading costs a local read
-    and no network at all — and "metadata" was the reason a frame sometimes never
-    arrived. The browser reads the header, stops, and whether a later seek produces a
-    decoded frame is then up to it. One 331 MB video failed twice in a row on a plain
-    H.264 High profile track with ordinary AAC audio; nothing about the file explained
-    it, because nothing about the file was wrong.
-
-    The backfill still asks for "metadata", because there the bytes come over the wire
-    and pulling more of a 900 MB film to draw a tile is the thing being avoided.
-  */
-  video.preload = "auto";
+  const deadline = Date.now() + VIDEO_TIMEOUT_MS;
 
   try {
-    const frame = await new Promise<HTMLVideoElement | null>((resolve) => {
-      // A codec the browser cannot decode fires no useful event at all, so the whole
-      // thing sits on a timer. Without it an undecodable video would hold the upload
-      // queue open indefinitely.
-      const timer = setTimeout(() => resolve(null), VIDEO_TIMEOUT_MS);
-      let settled = false;
-      const done = (value: HTMLVideoElement | null) => {
-        if (settled) return;
-        settled = true;
-        clearTimeout(timer);
-        resolve(value);
-      };
+    if (!(await loadMetadata(video, url, deadline))) return null;
 
-      video.onerror = () => done(null);
+    const duration = Number.isFinite(video.duration) && video.duration > 0 ? video.duration : null;
+    const width = video.videoWidth || null;
+    const height = video.videoHeight || null;
+    // A video with no picture — an audio-only MP4, say — has nothing to draw.
+    if (!width || !height) return null;
 
-      /**
-       * Whether a frame is actually there to draw.
-       *
-       * `seeked` says the seek finished, not that a picture has been decoded, and
-       * drawing too early gives a blank canvas. `HAVE_CURRENT_DATA` is the readyState
-       * that means there is one.
-       */
-      const drawWhenReady = () => {
-        if (video.readyState >= 2) done(video);
-      };
+    // Never past the end of a short clip, and never the same instant twice.
+    const targets = [...new Set(FRAME_CANDIDATES.filter((t) => duration === null || t < duration))];
+    if (targets.length === 0) targets.push(0);
 
-      video.onloadedmetadata = () => {
-        // A frame one second in, or the middle of anything shorter. The first frame of
-        // a video is very often black, which makes a thumbnail that looks broken.
-        const duration = video.duration;
-        const target =
-          Number.isFinite(duration) && duration > 0 ? Math.min(1, duration / 2) : 0.1;
+    let fallback: Blob | null = null;
+    for (const target of targets) {
+      if (Date.now() >= deadline) break;
+      if (!(await seekAndWait(video, target, deadline))) continue;
 
-        video.onseeked = drawWhenReady;
-        // Every one of these can be the moment the picture appears, and which fires
-        // varies by browser and by file. Whichever comes first wins; `done` ignores
-        // the rest.
-        video.onloadeddata = drawWhenReady;
-        video.oncanplay = drawWhenReady;
-        video.ontimeupdate = drawWhenReady;
+      const drawn = await encode(video, width, height);
+      if (!drawn.blob) continue;
+      // A flat frame is kept only in case nothing better turns up — a video that
+      // really is a solid colour should still get a tile.
+      if (!drawn.blank) return { blob: drawn.blob, width, height, durationSeconds: duration };
+      fallback ??= drawn.blob;
+    }
 
-        try {
-          // Setting currentTime to the value it already holds fires no `seeked` at
-          // all, so a target of exactly 0 could wait out the whole timeout.
-          video.currentTime = Math.abs(video.currentTime - target) < 0.001 ? target + 0.05 : target;
-        } catch {
-          // Seeking refused: the current frame, if there is one, is still worth having.
-          drawWhenReady();
-        }
-      };
-
-      video.src = url;
-    });
-
-    if (!frame) return null;
-    return await toWebp(frame, frame.videoWidth, frame.videoHeight);
+    return fallback ? { blob: fallback, width, height, durationSeconds: duration } : null;
   } catch {
     return null;
   } finally {
-    URL.revokeObjectURL(url);
     video.removeAttribute("src");
-    video.load();
+    try {
+      video.load();
+    } catch {
+      /* releasing the decoder is best-effort */
+    }
+  }
+}
+
+/** The same capture, for a file still in the browser rather than in storage. */
+async function fromVideo(file: Blob): Promise<MediaThumbnail | null> {
+  const url = URL.createObjectURL(file);
+  try {
+    return await videoThumbnailFromUrl(url, { preload: "auto" });
+  } finally {
+    URL.revokeObjectURL(url);
   }
 }
 
@@ -180,10 +290,10 @@ async function fromVideo(file: File): Promise<Blob | null> {
  * A thumbnail for this file, or null if one cannot be made.
  *
  * Null is an ordinary outcome, not an error: a HEIC in a browser that cannot decode
- * it, a video in a codec it does not ship, a canvas that refuses in a private
- * window. The caller uploads the file regardless.
+ * it, a video in a codec it does not ship, a canvas that refuses in a private window.
+ * The caller uploads the file regardless.
  */
-export async function makeThumbnail(file: File): Promise<Blob | null> {
+export async function makeThumbnail(file: File): Promise<MediaThumbnail | null> {
   try {
     if (file.type.startsWith("image/")) return await fromImage(file);
     if (file.type.startsWith("video/")) return await fromVideo(file);
@@ -191,10 +301,12 @@ export async function makeThumbnail(file: File): Promise<Blob | null> {
     // backfill path is the one that has to range into storage for them.
     if (file.type === "application/pdf" || /\.pdf$/i.test(file.name)) {
       if (file.size > PDF_INLINE_MAX_BYTES) return null;
-      return await pdfFirstPageThumbnail({ data: await file.arrayBuffer() });
+      const blob = await pdfFirstPageThumbnail({ data: await file.arrayBuffer() });
+      return blob ? { blob, width: null, height: null, durationSeconds: null } : null;
     }
     return null;
   } catch {
     return null;
   }
 }
+
