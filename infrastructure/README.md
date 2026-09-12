@@ -32,11 +32,22 @@ own private file into a cacheable one:
 |-------|------|-----------|---------|
 | `t` | thumbnail | yes, 24 h | `private, max-age=86400, immutable` |
 | `s` | public share asset | yes, 5 min | `private, max-age=300` |
-| `p` | private original | **never** | `private, max-age=600` |
+| `p` | private original | **never** | `private, max-age=3000` |
 
 Edge cache keys are the object key, which begins with the owner's user id — so entries
 are tenant-scoped by construction. A ranged request is never cached: a `206` is a slice,
 not the object.
+
+A private ticket also names its owner, and the worker honours it only alongside a
+signed `cc_dk` cookie for the same account — so a link copied out of the network tab
+does nothing in anyone else's browser. Share links carry no owner, by design.
+
+The subrequest to B2 is made with `cache: "no-store"`. Without it Cloudflare's own
+cache layer sits between the worker and B2, drops the `Range` header, fetches the
+object from byte zero and discards everything before the requested offset: seeking to
+90% of a 338 MB video took 33 s. With it, the same seek takes about half a second at
+any depth — measured to 1.2 GB into a 1.35 GB object. The subrequest is also signed for
+the method actually sent, since HEAD against a GET signature is a 403.
 
 Share revocation is bounded rather than immediate. A ticket already issued stays valid
 until it expires, and an edge entry lives out its TTL; both are capped at five minutes,
@@ -64,6 +75,11 @@ wrangler secret put CDN_TICKET_SECRET     # byte-identical to the one above
 `CDN_TICKET_SECRET` must match exactly, or every link the app issues fails signature
 validation and downloads stop.
 
+To rotate it without an outage: set the new value as `CDN_TICKET_SECRET_NEXT` on the
+CDN Worker (it accepts both), move the app Worker to the new value, then set it as
+`CDN_TICKET_SECRET` on the CDN Worker and delete `CDN_TICKET_SECRET_NEXT`. Leave no
+second secret in place afterwards — two valid keys are two ways to mint a link.
+
 The `cdn.cloudcols.com` DNS record does **not** need to be added by hand. The route in
 `wrangler.jsonc` is declared as a `custom_domain`, so `wrangler deploy` creates the
 record itself — proxied, with a certificate — and it appears in the dashboard as type
@@ -83,7 +99,11 @@ node scripts/cdn-verify.mjs
 Runs the real Worker under `wrangler dev` against a stand-in for B2 and asserts ticket
 forgery is refused, ranges come back as `206` without pulling the whole object,
 thumbnails are served from the edge on the second request, and private originals never
-are. 34 checks.
+are. 43 checks.
+
+`scripts/media-audit.mjs` does the same against production, on real files of several
+sizes: bytes actually transferred, 206s, time to first byte at depth, edge caching, and
+the ownership binding on the same objects.
 
 Against the live deployment:
 
