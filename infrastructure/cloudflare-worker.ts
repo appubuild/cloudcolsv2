@@ -273,7 +273,11 @@ async function deliver(
       region: env.B2_REGION || "us-east-005",
     },
     {
-      method: "GET",
+      // Signed for the method actually being sent. A GET-signed URL used for HEAD is a
+      // 403 from storage. That was invisible while Cloudflare's cache layer sat in front
+      // of this subrequest, because it quietly turned every HEAD into a GET; with that
+      // layer bypassed, HEAD reaches B2 as HEAD and the signature has to say so.
+      method: request.method === "HEAD" ? "HEAD" : "GET",
       endpoint: env.B2_ENDPOINT,
       bucket: env.B2_BUCKET,
       key: ticket.objectKey,

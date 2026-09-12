@@ -214,24 +214,51 @@ async function main() {
     const created = await fetch(presignB2("POST", key, { uploads: "" }), { method: "POST" });
     const xml = await created.text();
     const uploadId = xml.slice(xml.indexOf("<UploadId>") + 10, xml.indexOf("</UploadId>"));
-    const etags = [];
-    for (let i = 0; i < size / part; i += 1) {
-      const r = await fetch(presignB2("PUT", key, { partNumber: String(i + 1), uploadId }), { method: "PUT", body: chunk });
-      if (!r.ok) throw new Error("part " + (i + 1) + " -> " + r.status);
-      etags.push(r.headers.get("etag"));
-      process.stdout.write("\r    uploading " + (((i + 1) * part) / MB).toFixed(0) + " MB / 1024 MB   ");
-    }
-    process.stdout.write("\r" + " ".repeat(48) + "\r");
-    const parts = etags.map((e, i) => "<Part><PartNumber>" + (i + 1) + "</PartNumber><ETag>" + e + "</ETag></Part>").join("");
-    await fetch(presignB2("POST", key, { uploadId }), {
-      method: "POST",
-      body: "<CompleteMultipartUpload>" + parts + "</CompleteMultipartUpload>",
-    });
 
+    // One part at a time, each with its own deadline and retries. The first attempt at
+    // this sat on a stalled part until Node's five-minute header timeout fired, and —
+    // because nothing aborted the upload — left its parts in the bucket, billed and
+    // invisible, until they were found and removed by hand.
+    const putPart = async (n) => {
+      for (let attempt = 1; attempt <= 4; attempt += 1) {
+        try {
+          const r = await fetch(presignB2("PUT", key, { partNumber: String(n), uploadId }), {
+            method: "PUT",
+            body: chunk,
+            signal: AbortSignal.timeout(120000),
+          });
+          if (r.ok) return r.headers.get("etag");
+        } catch {
+          /* retried below */
+        }
+      }
+      throw new Error("part " + n + " failed four times");
+    };
+
+    let completed = false;
     try {
+      const etags = [];
+      for (let i = 0; i < size / part; i += 1) {
+        etags.push(await putPart(i + 1));
+        process.stdout.write("\r    uploading " + (((i + 1) * part) / MB).toFixed(0) + " MB / 1024 MB   ");
+      }
+      process.stdout.write("\r" + " ".repeat(48) + "\r");
+      const parts = etags.map((e, i) => "<Part><PartNumber>" + (i + 1) + "</PartNumber><ETag>" + e + "</ETag></Part>").join("");
+      const done = await fetch(presignB2("POST", key, { uploadId }), {
+        method: "POST",
+        body: "<CompleteMultipartUpload>" + parts + "</CompleteMultipartUpload>",
+      });
+      completed = done.ok;
+      if (!completed) throw new Error("complete failed: " + done.status);
+
       await exercise("1 GB synthetic object", key, size, "audit-user", "video/mp4");
     } finally {
-      await fetch(presignB2("DELETE", key), { method: "DELETE" });
+      if (completed) {
+        await fetch(presignB2("DELETE", key), { method: "DELETE" });
+      } else {
+        // Unfinished uploads keep their parts until aborted; abort, always.
+        await fetch(presignB2("DELETE", key, { uploadId }), { method: "DELETE" });
+      }
       console.log("    (test object removed)");
     }
   }
