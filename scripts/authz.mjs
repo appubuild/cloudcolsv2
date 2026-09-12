@@ -206,6 +206,13 @@ async function main() {
     await refused('cannot ask for multipart URLs on it', `/api/files/${fileId}/parts`, { token: other.token, method: 'POST', body: { uploadId: 'x', partNumbers: [1] } }, 404);
     await refused('cannot restore it from trash', `/api/files/${fileId}/restore`, { token: other.token, method: 'POST' }, 404);
     await refused('cannot permanently destroy it', `/api/files/${fileId}?force=true`, { token: other.token, method: 'DELETE' }, 404);
+    // POST /api/shares used to insert whatever id it was given, with the service-role
+    // client, so a stranger could mint a public link to this file under their own name.
+    await refused('cannot make a share link to it', '/api/shares', { token: other.token, method: 'POST', body: { fileId, permission: 'download' } }, 404);
+    {
+      const own = await call('/api/shares', { token: user.token, method: 'POST', body: { fileId, permission: 'view' } });
+      check(own.status === 200 && Boolean(own.json?.data?.token), 'while the owner can share it', `HTTP ${own.status}`);
+    }
 
     const still = await call(`/api/files/${fileId}`, { token: user.token });
     check(still.status === 200, 'and the owner still has it', `HTTP ${still.status}`);
