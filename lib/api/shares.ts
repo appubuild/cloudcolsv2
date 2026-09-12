@@ -62,7 +62,15 @@ export async function resolveShare(token: string): Promise<ShareState> {
   let folder: Extract<ShareState, { kind: "ready" }>["folder"] = null;
 
   if (share.file_id) {
-    const { data } = await admin.from("files").select("*").eq("id", share.file_id).maybeSingle();
+    // Only a file the share's own creator owns. POST /api/shares checks this when the
+    // link is made; this is the second lock, for any link that predates that check or
+    // any other path that ever writes share_links.
+    const { data } = await admin
+      .from("files")
+      .select("*")
+      .eq("id", share.file_id)
+      .eq("owner_id", share.owner_id)
+      .maybeSingle();
     if (data && !data.trashed_at && data.status === "ready") {
       file = {
         id: String(data.id),
@@ -78,7 +86,12 @@ export async function resolveShare(token: string): Promise<ShareState> {
   }
 
   if (share.folder_id) {
-    const { data } = await admin.from("folders").select("*").eq("id", share.folder_id).maybeSingle();
+    const { data } = await admin
+      .from("folders")
+      .select("*")
+      .eq("id", share.folder_id)
+      .eq("owner_id", share.owner_id)
+      .maybeSingle();
     if (data && !data.trashed_at) folder = { id: String(data.id), name: String(data.name) };
   }
 

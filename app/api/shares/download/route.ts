@@ -47,6 +47,10 @@ export const GET = limited(async (req: Request) => {
     .from("files")
     .select("object_key, original_filename, mime_type, status, trashed_at")
     .eq("id", share.file_id)
+    // The file must belong to whoever made the link. The token is this route's only
+    // authority, so without this a link minted against somebody else's file id would
+    // hand over their bytes.
+    .eq("owner_id", share.owner_id)
     .maybeSingle();
 
   // Trashed by the owner, or quarantined by an admin. Both stop the link working,
