@@ -5,6 +5,7 @@
 import "server-only";
 import { createAdminClient } from "@/lib/supabase/server";
 import { checkRateLimit, type RateLimitResult } from "./rateLimit";
+import { verifySupabaseJwt } from "./jwt";
 
 export class ApiError extends Error {
   code: string;
@@ -41,8 +42,23 @@ export async function requireUser(request: Request): Promise<AuthUser> {
   if (!token) throw new ApiError("UNAUTHORIZED", 401, "Missing authorization token.");
 
   const admin = createAdminClient();
-  const { data, error } = await admin.auth.getUser(token);
-  if (error || !data.user) throw new ApiError("UNAUTHORIZED", 401, "Invalid or expired session.");
+
+  // Checked here against the project's published signing key, which needs no network
+  // once the key is cached (lib/api/jwt.ts says what that does and does not give up).
+  // Only when this cannot decide — keys unreachable, a key it has never seen — is Auth
+  // asked instead. A token this can check and finds wrong is refused outright; asking
+  // Auth about it as well would only let a forger try twice.
+  let user: AuthUser;
+  const local = await verifySupabaseJwt(token);
+  if (local.status === "ok") {
+    user = { id: local.claims.sub, email: local.claims.email };
+  } else if (local.status === "invalid") {
+    throw new ApiError("UNAUTHORIZED", 401, "Invalid or expired session.");
+  } else {
+    const { data, error } = await admin.auth.getUser(token);
+    if (error || !data.user) throw new ApiError("UNAUTHORIZED", 401, "Invalid or expired session.");
+    user = { id: data.user.id, email: data.user.email ?? "" };
+  }
 
   // A suspended account is refused everything, read included. Suspension exists for
   // abuse, and letting someone keep reading their files while an investigation runs
@@ -54,7 +70,7 @@ export async function requireUser(request: Request): Promise<AuthUser> {
   const { data: profile } = await admin
     .from("user_storage")
     .select("status")
-    .eq("user_id", data.user.id)
+    .eq("user_id", user.id)
     .maybeSingle();
   if (profile && String(profile.status) === "suspended") {
     throw new ApiError(
@@ -77,7 +93,7 @@ export async function requireUser(request: Request): Promise<AuthUser> {
     }
   }
 
-  return { id: data.user.id, email: data.user.email ?? "" };
+  return user;
 }
 
 /** Wrap a handler so expected errors map to HTTP responses without leaking stack traces. */
@@ -146,8 +162,18 @@ export function json(code: string, status: number, message: string): never {
   throw new ApiError(code, status, message);
 }
 
-/** Best-effort client IP (works behind most reverse proxies + Vercel). */
+/**
+ * The caller's IP, for keying rate limits.
+ *
+ * cf-connecting-ip first, and that order is the point. Cloudflare sets it itself and
+ * overwrites whatever the client sent. X-Forwarded-For it only appends to, so its first
+ * entry is whatever the client chose to put there — and keying a limit on that let
+ * anyone reset their own login limit by sending a new made-up address with each try.
+ * The other two remain for running outside Cloudflare (next dev, a local proxy).
+ */
 export function clientIp(req: Request): string {
+  const cf = req.headers.get("cf-connecting-ip");
+  if (cf) return cf.trim();
   const xff = req.headers.get("x-forwarded-for") ?? "";
   const ip = (xff.split(",")[0] ?? "").trim();
   return ip || req.headers.get("x-real-ip") || "unknown";
@@ -163,7 +189,7 @@ export function limited<Arg, Res>(
 ): (req: Request, ctx?: Arg) => Promise<Response> {
   return handler(async (req, ctx) => {
     const windowMs = opts.windowMs ?? 60_000;
-    const rl = checkRateLimit(`${opts.name}:${clientIp(req)}`, opts.limit, windowMs);
+    const rl = await checkRateLimit(`${opts.name}:${clientIp(req)}`, opts.limit, windowMs);
     if (!rl.allowed) {
       throw new ApiError("RATE_LIMITED", 429, "Too many requests. Please try again shortly.");
     }

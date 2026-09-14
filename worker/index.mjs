@@ -15,11 +15,50 @@
  * typechecking on a clean checkout.
  */
 
+import { DurableObject } from "cloudflare:workers";
 import openNextWorker from "../.open-next/worker.js";
 
 // The generated worker exports these; a Durable Object binding fails to start if the
 // entry point does not.
 export { DOQueueHandler, DOShardedTagCache, BucketCachePurge } from "../.open-next/worker.js";
+
+/**
+ * One rate-limit counter, addressed by name (lib/api/rateLimit.ts uses the limit's key,
+ * e.g. "login:203.0.113.7").
+ *
+ * A Durable Object because it is a single instance worldwide for its name, so every
+ * request for a key is counted in one place — which memory in an ordinary isolate is
+ * not. Calls to one instance are handled one at a time, so the read-then-record below
+ * cannot race.
+ *
+ * The window is kept in memory, not storage. If the instance is evicted after sitting
+ * idle, its counts go with it — and an instance only sits idle when nobody is hitting
+ * that key, which is exactly when there is nothing worth remembering. Not writing to
+ * storage keeps each check to one in-memory operation.
+ *
+ * Same algorithm as checkRateLimitLocal in lib/api/rateLimit.ts; keep the two in step.
+ */
+export class RateLimiter extends DurableObject {
+  constructor(ctx, env) {
+    super(ctx, env);
+    this.timestamps = [];
+  }
+
+  hit(limit, windowMs) {
+    const now = Date.now();
+    this.timestamps = this.timestamps.filter((t) => now - t < windowMs);
+    const used = this.timestamps.length;
+    const allowed = used < limit;
+    if (allowed) this.timestamps.push(now);
+    const oldest = this.timestamps.length ? this.timestamps[0] : now;
+    return {
+      allowed,
+      limit,
+      remaining: Math.max(0, limit - used - (allowed ? 1 : 0)),
+      resetInSeconds: Math.max(0, Math.ceil((windowMs - (now - oldest)) / 1000)),
+    };
+  }
+}
 
 /**
  * Which jobs each schedule runs, keyed by the cron expression in wrangler.jsonc.

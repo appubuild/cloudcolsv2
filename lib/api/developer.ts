@@ -54,7 +54,7 @@ export async function enforceAndLogRequest(
     .maybeSingle();
   const limit = Number(plan?.rate_limit_per_minute ?? 60);
 
-  const rl = checkRateLimit(`dev:${identity.apiKeyId}`, limit, 60_000);
+  const rl = await checkRateLimit(`dev:${identity.apiKeyId}`, limit, 60_000);
   if (!rl.allowed) throw new ApiError("RATE_LIMITED", 429, "Rate limit exceeded.");
 
   // Record usage (fire-and-forget).

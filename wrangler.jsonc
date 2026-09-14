@@ -18,6 +18,15 @@
 
   "observability": { "enabled": true },
 
+  // Rate limits. One RateLimiter instance per limited key (worker/index.mjs), so a
+  // limit is counted in one place instead of separately in every isolate.
+  "durable_objects": {
+    "bindings": [{ "name": "RATE_LIMITER", "class_name": "RateLimiter" }]
+  },
+  // Durable Object classes are declared once, by tag, and never edited afterwards —
+  // a later change (rename, delete) is a new entry below this one.
+  "migrations": [{ "tag": "v1-rate-limiter", "new_sqlite_classes": ["RateLimiter"] }],
+
   // Trash cleanup and the inactivity lifecycle. Both delete things, so once a day at
   // a quiet hour rather than a tight loop. Without this the endpoints existed and
   // nothing ever called them.
