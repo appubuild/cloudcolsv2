@@ -4,7 +4,6 @@ import { useApiPlans, useMe } from "@/lib/hooks/queries";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/misc";
-import { toast } from "@/lib/store/toast";
 import { Check } from "lucide-react";
 
 export default function DeveloperBilling() {
@@ -42,8 +41,10 @@ export default function DeveloperBilling() {
                   <li className="flex items-center gap-2"><Check className="h-4 w-4 text-success" /> {p.rateLimitPerMinute} req/min</li>
                 </ul>
                 {!current && (
-                  <Button variant="secondary" className="mt-5" onClick={() => toast.info("Billing is mocked", "Upgrade flows are simulated in this demo.")}>
-                    Switch to {p.name}
+                  // It used to offer "Switch to X" and then say, on click, that billing
+                  // was simulated. Better to say so before the click than after it.
+                  <Button variant="secondary" className="mt-5" disabled>
+                    Coming soon
                   </Button>
                 )}
               </CardContent>

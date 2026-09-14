@@ -1,5 +1,6 @@
 import { serverEnv, serverConfig, configSource } from "@/lib/config/server-env";
 import { cdnConfigured } from "@/lib/services/delivery";
+import { emailStatus } from "@/lib/email";
 
 export const dynamic = "force-dynamic";
 
@@ -51,6 +52,25 @@ export async function GET() {
   // nothing is ever cached.
   const cdn = cdnConfigured();
 
+  /**
+   * Whether a message would actually reach anyone.
+   *
+   * Without a provider every send is a console line and returns quietly, so password
+   * resets, share invitations and inactivity warnings all "succeed" while nothing
+   * arrives. That silence is the reason this is reported rather than left to be
+   * noticed by a user who never got their reset link.
+   */
+  const mail = emailStatus();
+
+  /**
+   * Background work needs a token to run at all.
+   *
+   * The cron fires on schedule regardless; without JOBS_TOKEN every job refuses, so
+   * trash is never emptied and the inactivity lifecycle never advances — silently,
+   * because nobody is watching a scheduled run.
+   */
+  const jobsToken = Boolean(serverConfig("JOBS_TOKEN"));
+
   const warnings: string[] = [];
   if (effectiveServer === "mock") {
     warnings.push("The server is set to mock. Nothing it returns is stored anywhere.");
@@ -70,6 +90,16 @@ export async function GET() {
   if (!supabaseConfigured) {
     warnings.push("Supabase is not configured; sign-in and every data request will fail.");
   }
+  if (!mail.deliverable) {
+    warnings.push(
+      `Email provider is "${mail.provider}", so nothing is actually sent — password ` +
+        "resets, invitations and inactivity warnings go to the log. Set EMAIL_PROVIDER " +
+        "and RESEND_API_KEY on this Worker.",
+    );
+  }
+  if (!jobsToken) {
+    warnings.push("JOBS_TOKEN is not set, so the daily cron runs and every job refuses.");
+  }
   if (!cdn) {
     warnings.push(
       "CDN_DOMAIN / CDN_TICKET_SECRET are not both set, so files are served straight " +
@@ -85,7 +115,7 @@ export async function GET() {
     // has not finished deploying is indistinguishable from a fix that did not work.
     build: process.env.CF_VERSION_METADATA_ID ?? process.env.WORKERS_CI_COMMIT_SHA ?? "unknown",
     dataLayer: { server: effectiveServer, builtWith: buildTimeValue },
-    providers: { supabase: supabaseConfigured, b2: b2Configured, cdn },
+    providers: { supabase: supabaseConfigured, b2: b2Configured, cdn, email: mail.deliverable, jobs: jobsToken },
     // "cdn" means signed tickets are issued and Cloudflare fronts storage; "b2" means
     // readers are sent straight to Backblaze.
     delivery: cdn ? "cdn" : "b2",
@@ -102,6 +132,9 @@ export async function GET() {
       B2_SECRET_ACCESS_KEY: configSource("B2_SECRET_ACCESS_KEY"),
       CDN_DOMAIN: configSource("CDN_DOMAIN"),
       CDN_TICKET_SECRET: configSource("CDN_TICKET_SECRET"),
+      JOBS_TOKEN: configSource("JOBS_TOKEN"),
+      EMAIL_PROVIDER: configSource("EMAIL_PROVIDER"),
+      RESEND_API_KEY: configSource("RESEND_API_KEY"),
     },
     ...(missing.length ? { missingAtRuntime: missing } : {}),
     ...(warnings.length ? { warnings } : {}),

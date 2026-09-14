@@ -13,7 +13,7 @@ import { audit } from "@/lib/api/audit";
  * parked video and audio in "processing" on the way. Thumbnails are made in the
  * browser at upload time now (lib/services/thumbnailer.ts), so there is no job.
  */
-export type JobName = "webhook-delivery" | "trash-cleanup" | "inactivity";
+export type JobName = "webhook-delivery" | "trash-cleanup" | "inactivity" | "abandoned-uploads";
 
 export interface JobContext {
   name: JobName;
@@ -26,6 +26,11 @@ export async function runJob(name: JobName, data?: Record<string, unknown>): Pro
       case "inactivity": {
         const { runInactivityPolicy } = await import("./inactivity");
         const result = await runInactivityPolicy(data as never);
+        return { name, ok: true, message: result };
+      }
+      case "abandoned-uploads": {
+        const { runAbandonedUploads } = await import("./abandonedUploads");
+        const result = await runAbandonedUploads();
         return { name, ok: true, message: result };
       }
       case "trash-cleanup": {

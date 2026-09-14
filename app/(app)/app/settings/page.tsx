@@ -147,12 +147,19 @@ function SecurityTab() {
           <CardTitle>Two-factor authentication</CardTitle>
           <CardDescription>Add an extra layer of security to your account.</CardDescription>
         </CardHeader>
-        <CardContent className="flex items-center justify-between">
+        <CardContent className="flex items-center justify-between gap-4">
           <div>
             <p className="text-sm font-medium text-foreground">Authenticator app</p>
-            <p className="text-xs text-muted-foreground">Not yet enabled in the demo.</p>
+            {/* Said "Not yet enabled in the demo" beside a working-looking button that
+                had no handler at all. Nothing about the control said it would do
+                nothing, which is the one thing it reliably did. */}
+            <p className="text-xs text-muted-foreground">
+              Not available yet. Until it is, use a long, unique password here.
+            </p>
           </div>
-          <Button variant="secondary">Enable 2FA</Button>
+          <Button variant="secondary" disabled>
+            Coming soon
+          </Button>
         </CardContent>
       </Card>
     </div>

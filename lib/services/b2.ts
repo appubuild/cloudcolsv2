@@ -323,6 +323,67 @@ export async function completeMultipartUpload(
 }
 
 /** Give up on a multipart upload, so storage stops holding its parts. */
+/**
+ * Every multipart upload that has been started and not finished.
+ *
+ * These are invisible in an ordinary listing: the parts belong to no object yet, so
+ * nothing shows them, and storage bills for them until the upload is completed or
+ * aborted. That is what makes an abandoned upload expensive rather than merely untidy.
+ *
+ * Paginated, because a bucket that has been leaking them for a while can hold more
+ * than one page, and stopping at the first would leave the rest to accumulate.
+ */
+export async function listMultipartUploads(): Promise<
+  { key: string; uploadId: string; initiated: Date | null }[]
+> {
+  const { sig, endpoint, bucket } = config();
+  const out: { key: string; uploadId: string; initiated: Date | null }[] = [];
+
+  let keyMarker: string | undefined;
+  let uploadIdMarker: string | undefined;
+
+  // A bound rather than `while (true)`: a provider that keeps saying "truncated"
+  // without advancing the marker would otherwise loop forever inside a cron run.
+  for (let page = 0; page < 20; page += 1) {
+    const query: Record<string, string> = { uploads: "" };
+    if (keyMarker) query["key-marker"] = keyMarker;
+    if (uploadIdMarker) query["upload-id-marker"] = uploadIdMarker;
+
+    const headers = await signRequest(sig, { method: "GET", endpoint, path: `/${bucket}`, query });
+    const search = new URLSearchParams(query).toString();
+    const res = await fetch(`${originOf(endpoint)}/${bucket}?${search}`, { headers });
+    const body = await res.text();
+    if (!res.ok) {
+      throw new Error(`Storage refused to list uploads (HTTP ${res.status}). ${body.slice(0, 200)}`);
+    }
+
+    // Split on the element rather than matching across the whole document: xmlTag
+    // returns the first occurrence, and there is one of each per entry.
+    for (const chunk of body.split("<Upload>").slice(1)) {
+      const entry = chunk.split("</Upload>")[0] ?? "";
+      const key = xmlTag(entry, "Key");
+      const uploadId = xmlTag(entry, "UploadId");
+      if (!key || !uploadId) continue;
+      const started = xmlTag(entry, "Initiated");
+      const initiated = started ? new Date(started) : null;
+      out.push({
+        key,
+        uploadId,
+        initiated: initiated && !Number.isNaN(initiated.getTime()) ? initiated : null,
+      });
+    }
+
+    if (xmlTag(body, "IsTruncated") !== "true") break;
+    const nextKey = xmlTag(body, "NextKeyMarker");
+    const nextUpload = xmlTag(body, "NextUploadIdMarker");
+    if (!nextKey || (nextKey === keyMarker && nextUpload === uploadIdMarker)) break;
+    keyMarker = nextKey;
+    uploadIdMarker = nextUpload ?? undefined;
+  }
+
+  return out;
+}
+
 export async function abortMultipartUpload(objectKey: string, uploadId: string): Promise<void> {
   try {
     const { sig, endpoint, bucket } = config();

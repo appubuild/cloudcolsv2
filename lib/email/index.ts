@@ -5,6 +5,7 @@
 // EMAIL_PROVIDER + the matching API key.
 
 import "server-only";
+import { serverConfig } from "@/lib/config/server-env";
 
 export type EmailProvider = "console" | "resend" | "smtp" | "custom";
 
@@ -56,7 +57,29 @@ export const EMAIL_TEMPLATES: Record<string, (d: Record<string, string>) => { su
   }),
 };
 
-const provider: EmailProvider = (process.env.EMAIL_PROVIDER as EmailProvider) || "console";
+/**
+ * Read per call, not once at module load, and through `serverConfig`.
+ *
+ * `process.env` is not a reliable source on Workers — bindings arrive per request —
+ * which is the bug the rest of the codebase already fixed. Here it meant the provider
+ * was decided when the isolate booted, from a place that had nothing in it, so every
+ * email silently went to the console: no password resets, no share invitations, no
+ * inactivity warnings, and nothing anywhere saying so.
+ */
+function emailConfig(): { provider: EmailProvider; apiKey: string; from: string } {
+  const provider = (serverConfig("EMAIL_PROVIDER") || "console") as EmailProvider;
+  return {
+    provider,
+    apiKey: serverConfig("RESEND_API_KEY"),
+    from: serverConfig("EMAIL_FROM") || "CloudCols <noreply@cloudcols.com>",
+  };
+}
+
+/** What the current configuration would do, for /api/health to report. */
+export function emailStatus(): { provider: EmailProvider; deliverable: boolean } {
+  const { provider, apiKey } = emailConfig();
+  return { provider, deliverable: provider !== "console" && Boolean(apiKey) };
+}
 
 function render(template: string, data: Record<string, string>): { subject: string; body: string } {
   const tpl = EMAIL_TEMPLATES[template];
@@ -67,21 +90,22 @@ function render(template: string, data: Record<string, string>): { subject: stri
 /** Send a transactional email. Never throws in a way that fails the request — logs and continues. */
 export async function sendTransactional(input: SendEmailInput): Promise<{ sent: boolean; provider: EmailProvider }> {
   const { subject, body } = render(input.template ?? "security", input.data ?? {});
+  const { provider, apiKey, from: defaultFrom } = emailConfig();
 
-  if (provider === "console" || !process.env.RESEND_API_KEY) {
+  if (provider === "console" || !apiKey) {
     // Dev/no-provider fallback — never fail the flow.
     console.info(`[email:console] to=${input.to} subject="${input.subject ?? subject}"`);
     return { sent: false, provider: "console" };
   }
 
-  const from = input.from ?? process.env.EMAIL_FROM ?? "CloudCols <noreply@yourdomain.com>";
+  const from = input.from ?? defaultFrom;
 
   try {
     if (provider === "resend") {
       const res = await fetch("https://api.resend.com/emails", {
         method: "POST",
         headers: {
-          Authorization: `Bearer ${process.env.RESEND_API_KEY}`,
+          Authorization: `Bearer ${apiKey}`,
           "content-type": "application/json",
         },
         body: JSON.stringify({ from, to: [input.to], subject: input.subject ?? subject, html: body, text: input.text }),

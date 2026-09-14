@@ -30,7 +30,7 @@ export { DOQueueHandler, DOShardedTagCache, BucketCachePurge } from "../.open-ne
  * against work that is destructive by design.
  */
 const SCHEDULES = {
-  "17 3 * * *": ["trash-cleanup", "inactivity"],
+  "17 3 * * *": ["trash-cleanup", "inactivity", "abandoned-uploads"],
 };
 
 export default {

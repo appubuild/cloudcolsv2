@@ -119,6 +119,15 @@ export const SETTINGS = {
     parse: int(1, 3650),
   } as Definition<number>,
 
+  abandoned_upload_hours: {
+    fallback: 24,
+    isPublic: false,
+    description: "Hours before an unfinished upload is swept away, rows and parts alike",
+    // Long enough that a genuinely slow upload is never mistaken for an abandoned
+    // one: a 3 GB file on a poor connection can legitimately take many hours.
+    parse: int(2, 720),
+  } as Definition<number>,
+
   trash_counts_toward_quota: {
     fallback: true,
     isPublic: true,
