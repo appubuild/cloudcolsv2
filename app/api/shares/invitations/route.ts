@@ -1,6 +1,7 @@
 import "server-only";
 import { handler, requireUser, ApiError } from "@/lib/api/auth";
 import { createAdminClient } from "@/lib/supabase/server";
+import { notify } from "@/lib/notifications";
 
 export const dynamic = "force-dynamic";
 
@@ -101,16 +102,13 @@ export const POST = handler(async (req: Request) => {
   // Tell the recipient, if we know who they are. Best effort: a failed
   // notification must not fail the invitation, which is the durable record.
   if (recipientId) {
-    await admin
-      .from("notifications")
-      .insert({
-        user_id: recipientId,
-        type: "share_invitation",
-        title: `${user.email} shared something with you`,
-        body: body.message?.slice(0, 500) ?? "",
-        link: "/app/shared",
-      })
-      .then(undefined, () => undefined);
+    await notify({
+      userId: recipientId,
+      type: "share_invitation",
+      title: `${user.email} shared something with you`,
+      body: body.message ?? "",
+      link: "/app/shared",
+    });
   }
 
   return mapInvitation(invitation as Record<string, unknown>);

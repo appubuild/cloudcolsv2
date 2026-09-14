@@ -1,6 +1,7 @@
 import "server-only";
 import { handler, requireUser, ApiError } from "@/lib/api/auth";
 import { createAdminClient } from "@/lib/supabase/server";
+import { notify } from "@/lib/notifications";
 
 export const dynamic = "force-dynamic";
 
@@ -72,16 +73,12 @@ export const PATCH = handler(async (req: Request, ctx?: { params: Promise<Params
   // Let the owner know the outcome. Best effort: the invitation row is the record
   // that matters, and a failed notification must not undo the response.
   if (!isOwner && data) {
-    await admin
-      .from("notifications")
-      .insert({
-        user_id: invitation.owner_id,
-        type: "share_response",
-        title: `${user.email} ${status} your share`,
-        body: "",
-        link: "/app/shared",
-      })
-      .then(undefined, () => undefined);
+    await notify({
+      userId: String(invitation.owner_id),
+      type: "share_response",
+      title: `${user.email} ${status} your share`,
+      link: "/app/shared",
+    });
   }
 
   return { id: String(data.id), status: String(data.status) };

@@ -3,6 +3,7 @@ import { createAdminClient } from "@/lib/supabase/server";
 import { stripeProvider } from "@/lib/payments/stripe";
 import { requirePlan, defaultPlan } from "@/lib/plans/catalog";
 import { audit } from "@/lib/api/audit";
+import { notify } from "@/lib/notifications";
 
 export const dynamic = "force-dynamic";
 
@@ -131,6 +132,16 @@ async function applyEvent(event: Awaited<ReturnType<typeof stripeProvider.verify
         targetId: event.userId,
         metadata: { planId: event.planId, amountCents: event.amountCents, provider: "stripe" },
       });
+
+      // Once per payment: the event id was claimed above, so a redelivery never
+      // reaches this line twice.
+      await notify({
+        userId: event.userId,
+        type: "payment_succeeded",
+        title: "Payment received — your plan is active",
+        body: "Your new storage limit applies now.",
+        link: "/app/settings",
+      });
       return;
     }
 
@@ -153,6 +164,15 @@ async function applyEvent(event: Awaited<ReturnType<typeof stripeProvider.verify
       // The plan is left alone. Stripe retries a failed invoice for a while, and
       // downgrading on the first failure would take storage away from someone
       // whose card is about to succeed.
+      if (event.userId) {
+        await notify({
+          userId: event.userId,
+          type: "payment_failed",
+          title: "A payment didn't go through",
+          body: "Your plan is unchanged for now. Stripe will retry; updating your card avoids an interruption.",
+          link: "/app/settings",
+        });
+      }
       return;
     }
 
@@ -185,6 +205,14 @@ async function applyEvent(event: Awaited<ReturnType<typeof stripeProvider.verify
           targetType: "user",
           targetId: String(subscription.user_id),
           metadata: { provider: "stripe" },
+        });
+
+        await notify({
+          userId: String(subscription.user_id),
+          type: "subscription_canceled",
+          title: "Your subscription has ended",
+          body: "Your files are all still here. Uploads resume once you are under the free plan's limit, or when you subscribe again.",
+          link: "/app/settings",
         });
       }
       return;

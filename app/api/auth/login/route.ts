@@ -26,7 +26,9 @@ export const POST = limited(async (req: Request) => {
   const profile = await ensureProfile(data.user.id);
   await admin
     .from("user_storage")
-    .update({ last_login_at: new Date().toISOString() })
+    // Signing in is activity: any inactivity warning already sent no longer applies,
+    // and a later lapse is warned about from the start (lib/jobs/inactivity.ts).
+    .update({ last_login_at: new Date().toISOString(), inactivity_stage: null })
     .eq("user_id", data.user.id);
 
   return {

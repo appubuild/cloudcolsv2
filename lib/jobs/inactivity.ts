@@ -7,6 +7,7 @@ import "server-only";
 import { createAdminClient } from "@/lib/supabase/server";
 import { email } from "@/lib/email";
 import { audit } from "@/lib/api/audit";
+import { notify } from "@/lib/notifications";
 import { getSettings } from "@/lib/settings/system";
 
 export interface InactivityPolicy {
@@ -45,7 +46,7 @@ export async function runInactivityPolicy(data?: { dryRun?: boolean }): Promise<
 
   const { data: users, error } = await admin
     .from("user_storage")
-    .select("user_id, plan_id, status, last_login_at, created_at")
+    .select("user_id, plan_id, status, last_login_at, created_at, inactivity_stage")
     .eq("status", "active");
   if (error) return `Inactivity policy failed: ${error.message}`;
 
@@ -57,29 +58,57 @@ export async function runInactivityPolicy(data?: { dryRun?: boolean }): Promise<
 
     if (daysInactive < p.inactiveDays) continue;
 
-    const { data: profile } = await admin.auth.admin.getUserById(u.user_id);
-    const emailAddr = profile?.user?.email;
+    // What this account has already been sent. The job runs daily; without this, every
+    // day inside a window re-sent that window's email (migration 0024).
+    const stage = u.inactivity_stage as "warned" | "final_warned" | null;
+    const userId = String(u.user_id);
+
+    const lookupEmail = async () => (await admin.auth.admin.getUserById(userId)).data?.user?.email;
+    const setStage = (next: "warned" | "final_warned") =>
+      admin.from("user_storage").update({ inactivity_stage: next }).eq("user_id", userId);
 
     if (daysInactive >= p.inactiveDays + p.warningDays + p.finalWarningDays + p.graceDays) {
       // Beyond grace → mark pending deletion (deletion itself is a separate, explicit step).
+      // Happens once by construction: the status change takes the account out of this query.
       if (!data?.dryRun) {
-        await admin.from("user_storage").update({ status: "pending_deletion" }).eq("user_id", u.user_id);
+        await admin.from("user_storage").update({ status: "pending_deletion" }).eq("user_id", userId);
+        const emailAddr = await lookupEmail();
         if (emailAddr) await email.inactiveFinal(emailAddr, { name: emailAddr.split("@")[0] ?? "there", grace: String(p.graceDays) }).catch(() => {});
-        await audit({ actorType: "system", action: "user.schedule_deletion", targetType: "user", targetId: String(u.user_id), metadata: { daysInactive } });
+        await audit({ actorType: "system", action: "user.schedule_deletion", targetType: "user", targetId: userId, metadata: { daysInactive } });
         scheduled += 1;
       }
     } else if (daysInactive >= p.inactiveDays + p.warningDays + p.finalWarningDays) {
+      if (stage === "final_warned") continue;
       if (!data?.dryRun) {
+        const emailAddr = await lookupEmail();
         if (emailAddr) await email.inactiveFinal(emailAddr, { name: emailAddr.split("@")[0] ?? "there", grace: String(p.graceDays) }).catch(() => {});
-        await audit({ actorType: "system", action: "user.final_warning", targetType: "user", targetId: String(u.user_id), metadata: { daysInactive } });
-        finalWarned += 1;
+        await notify({
+          userId,
+          type: "inactivity_final",
+          title: "Final notice: this account is inactive",
+          body: `It will be scheduled for deletion after a ${p.graceDays}-day grace period. Signing in cancels that — nothing else is needed.`,
+          link: "/app",
+        });
+        await setStage("final_warned");
+        await audit({ actorType: "system", action: "user.final_warning", targetType: "user", targetId: userId, metadata: { daysInactive } });
       }
+      finalWarned += 1;
     } else if (daysInactive >= p.inactiveDays) {
+      if (stage) continue;
       if (!data?.dryRun) {
+        const emailAddr = await lookupEmail();
         if (emailAddr) await email.inactiveWarning(emailAddr, { name: emailAddr.split("@")[0] ?? "there", days: String(daysInactive) }).catch(() => {});
-        await audit({ actorType: "system", action: "user.inactive_warning", targetType: "user", targetId: String(u.user_id), metadata: { daysInactive } });
-        warned += 1;
+        await notify({
+          userId,
+          type: "inactivity_warning",
+          title: `This account has been inactive for ${daysInactive} days`,
+          body: "Signing in now and then keeps it active. Nothing else is needed.",
+          link: "/app",
+        });
+        await setStage("warned");
+        await audit({ actorType: "system", action: "user.inactive_warning", targetType: "user", targetId: userId, metadata: { daysInactive } });
       }
+      warned += 1;
     }
   }
 
