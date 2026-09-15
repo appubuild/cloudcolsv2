@@ -24,6 +24,8 @@ export interface VerifiedClaims {
   email: string;
   exp: number;
   sessionId: string | null;
+  /** Authenticator assurance level: "aal1" (password) or "aal2" (with a second factor). */
+  aal: string | null;
 }
 
 /**
@@ -193,6 +195,7 @@ export async function verifySupabaseJwt(token: string): Promise<VerifyResult> {
     aud?: string | string[];
     role?: string;
     session_id?: string;
+    aal?: string;
   }>(payloadSeg);
   if (!claims) return { status: "invalid", reason: "unreadable claims" };
 
@@ -217,6 +220,7 @@ export async function verifySupabaseJwt(token: string): Promise<VerifyResult> {
       email: claims.email ?? "",
       exp: claims.exp,
       sessionId: claims.session_id ?? null,
+      aal: typeof claims.aal === "string" ? claims.aal : null,
     },
   };
 }

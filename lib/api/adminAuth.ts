@@ -9,6 +9,8 @@ import { createHmac, timingSafeEqual } from "crypto";
 import { createAdminClient } from "@/lib/supabase/server";
 import { serverEnv } from "@/lib/config/server-env";
 import { ApiError } from "./auth";
+import { buildCookie, isSameOrigin, isSecureRequest } from "./session";
+import { readCookie } from "@/lib/services/deliveryCookie";
 
 export type AdminRole = "super_admin" | "support" | "operator";
 
@@ -28,7 +30,12 @@ export interface AdminIdentity {
   role: AdminRole;
 }
 
-const ADMIN_COOKIE = "cloudcols.admin.token";
+/**
+ * The staff session cookie. HttpOnly, like the user session (lib/api/session.ts): the
+ * staff token used to sit in localStorage, where any script on the page could read the
+ * most powerful credential this product issues.
+ */
+const ADMIN_COOKIE = "cc_admin";
 
 /**
  * The key that signs staff sessions.
@@ -93,7 +100,13 @@ export function verifyAdminToken(token: string): AdminIdentity | null {
 
 /** Verifies an admin token, loads the live role from the admins table, applies RBAC. */
 export async function requireAdmin(req: Request, minRole?: AdminRole): Promise<AdminIdentity> {
-  const token = req.headers.get("authorization")?.replace(/^Bearer\s+/i, "") ?? "";
+  const bearer = req.headers.get("authorization")?.replace(/^Bearer\s+/i, "").trim() ?? "";
+  const cookie = bearer ? "" : readCookie(req.headers.get("cookie"), ADMIN_COOKIE) ?? "";
+  // A cookie is sent by the browser whoever asked; a staff write must come from our pages.
+  if (cookie && !isSameOrigin(req)) {
+    throw new ApiError("CSRF_REJECTED", 403, "This request did not come from CloudCols.");
+  }
+  const token = bearer || cookie;
   const decoded = token ? verifyAdminToken(token) : null;
   if (!decoded) throw new ApiError("UNAUTHORIZED", 401, "Admin session required.");
 
@@ -151,6 +164,19 @@ async function verifyPassword(email: string, password: string): Promise<boolean>
     body: JSON.stringify({ email, password }),
   });
   return res.ok;
+}
+
+/** Set-Cookie for a staff session. Strict: the admin console is never entered from another site. */
+export function adminSessionCookie(req: Request, token: string): string {
+  return buildCookie(ADMIN_COOKIE, token, {
+    maxAge: TTL_MS / 1000,
+    secure: isSecureRequest(req),
+    sameSite: "Strict",
+  });
+}
+
+export function clearedAdminCookie(req: Request): string {
+  return buildCookie(ADMIN_COOKIE, "", { maxAge: 0, secure: isSecureRequest(req), sameSite: "Strict" });
 }
 
 export { ADMIN_COOKIE };

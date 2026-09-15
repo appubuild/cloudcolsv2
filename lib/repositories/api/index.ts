@@ -35,7 +35,7 @@ import type {
   ShareRepository,
   SubscriptionRepository,
 } from "../types";
-import { apiClient, auth } from "@/lib/api/client";
+import { apiClient, ApiClientError, hasSessionHint } from "@/lib/api/client";
 
 function qs(params: Record<string, unknown>): string {
   const p = new URLSearchParams();
@@ -48,8 +48,14 @@ function qs(params: Record<string, unknown>): string {
 // Auth
 // ---------------------------------------------------------------------------
 class ApiAuthRepository implements AuthRepository {
-  private async resolveCurrent(userId: string, email: string): Promise<User> {
+  /**
+   * The signed-in user, from the server. The session is in httpOnly cookies, so the
+   * server is the only thing that can say who this is.
+   */
+  private async current(): Promise<User> {
     const profile = await apiClient.get<Record<string, unknown>>("/api/auth/me");
+    const userId = String(profile.id ?? "");
+    const email = String(profile.email ?? "");
     // The saved display name, falling back to the address's local part. This used
     // to always use the address, so Settings could save a name that nothing ever
     // displayed — the request succeeded and the screen never changed.
@@ -78,34 +84,29 @@ class ApiAuthRepository implements AuthRepository {
   }
 
   async getCurrentUser(): Promise<User | null> {
-    const sb = auth();
-    if (!sb) return null;
-    const { data } = await sb.auth.getSession();
-    if (!data.session) return null;
-    return this.resolveCurrent(data.session.user.id, data.session.user.email ?? "");
+    // No hint cookie, no session: nothing to ask the server.
+    if (!hasSessionHint()) return null;
+    try {
+      return await this.current();
+    } catch (e) {
+      if (e instanceof ApiClientError && e.status === 401) return null;
+      throw e;
+    }
   }
 
   async signIn(email: string, password: string): Promise<User> {
-    const sb = auth();
-    if (!sb) throw new Error("Supabase not configured on this deployment.");
-    const { data, error } = await sb.auth.signInWithPassword({ email, password });
-    if (error) throw new Error(error.message);
-    return this.resolveCurrent(data.user.id, data.user.email ?? "");
+    await apiClient.post("/api/auth/login", { email, password });
+    return this.current();
   }
 
   async signUp(name: string, email: string, password: string): Promise<User> {
-    const sb = auth();
-    if (!sb) throw new Error("Supabase not configured on this deployment.");
-    const { data, error } = await sb.auth.signUp({ email, password, options: { data: { name } } });
-    if (error) throw new Error(error.message);
-    if (!data.user) throw new Error("Account created; check your email to verify.");
-    // If auto-confirm is on we get a session; otherwise sentinel user until verified.
-    return this.resolveCurrent(data.user.id, data.user.email ?? "");
+    const res = await apiClient.post<{ needsEmailConfirm: boolean }>("/api/auth/signup", { name, email, password });
+    if (res.needsEmailConfirm) throw new Error("Account created. Check your email to confirm it, then sign in.");
+    return this.current();
   }
 
   async signOut(): Promise<void> {
-    const sb = auth();
-    if (sb) await sb.auth.signOut();
+    await apiClient.post("/api/auth/logout").catch(() => undefined);
   }
 
   async updateProfile(userId: string, patch: Partial<User>): Promise<User> {

@@ -1,22 +1,21 @@
 "use client";
 
-import { getAdminToken } from "@/lib/store/admin";
+import { clearAdminSession } from "@/lib/store/admin";
 
 /**
- * Calls an admin endpoint with the staff session token.
+ * Calls an admin endpoint with the staff session.
  *
- * Separate from the user API client on purpose: admin sessions are a different
- * identity with a different token and a different lifetime, and one helper that
- * sometimes sends one and sometimes the other is how a request ends up carrying
- * the wrong credential.
+ * The session is the httpOnly cc_admin cookie, which the browser attaches itself; this
+ * helper never sees a token. A 401 means the staff session is gone (six hours, or signed
+ * out elsewhere), so the console's cached role is dropped and the page goes back to the
+ * sign-in screen instead of showing a panel whose every call fails.
  */
 export async function adminFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
-  const token = getAdminToken();
   const res = await fetch(path, {
     ...init,
+    credentials: "same-origin",
     headers: {
       ...(init.headers ?? {}),
-      ...(token ? { authorization: `Bearer ${token}` } : {}),
       ...(init.body ? { "content-type": "application/json" } : {}),
     },
   });
@@ -25,6 +24,11 @@ export async function adminFetch<T>(path: string, init: RequestInit = {}): Promi
     | { ok: true; data: T }
     | { ok: false; error: { code: string; message: string } }
     | null;
+
+  if (res.status === 401 && typeof window !== "undefined") {
+    clearAdminSession();
+    if (!window.location.pathname.startsWith("/admin/login")) window.location.assign("/admin/login");
+  }
 
   if (!res.ok || !body || body.ok === false) {
     const message = body && body.ok === false ? body.error.message : `Request failed (${res.status})`;

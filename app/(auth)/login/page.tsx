@@ -20,7 +20,10 @@ function LoginInner() {
   const qc = useQueryClient();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [error, setError] = useState<string | null>(null);
+  // /auth/confirm sends a one-time link that has expired or was already used back here.
+  const [error, setError] = useState<string | null>(
+    params.get("error") === "link" ? "That sign-in link has expired or was already used. Sign in below, or ask for a new link." : null,
+  );
   const [loading, setLoading] = useState(false);
 
   const submit = async (e: React.FormEvent) => {

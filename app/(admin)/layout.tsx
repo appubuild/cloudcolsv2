@@ -9,7 +9,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { MockDataBanner } from "@/components/layout/mock-data-banner";
 import { cn } from "@/lib/utils";
 import { toast } from "@/lib/store/toast";
-import { useAdminSession, clearAdminSession } from "@/lib/store/admin";
+import { useAdminSession, signOutAdmin } from "@/lib/store/admin";
 import { LayoutDashboard, Users, Database, CreditCard, Wallet, KeyRound, Megaphone, FileText, FileStack, Shield, Settings, SlidersHorizontal, LogOut } from "lucide-react";
 
 const adminNav = [
@@ -54,7 +54,7 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
             <span className="rounded-full bg-surface-2 px-2 py-0.5 text-xs text-muted-foreground capitalize">{role.replace("_", " ")}</span>
           </div>
           <button
-            onClick={() => { clearAdminSession(); toast.info("Admin signed out"); router.push("/admin/login"); }}
+            onClick={() => { void signOutAdmin().then(() => { toast.info("Admin signed out"); router.push("/admin/login"); }); }}
             className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground"
           >
             <LogOut className="h-4 w-4" /> Sign out

@@ -126,7 +126,7 @@ async function main() {
   console.log('Sign-in is recorded');
   {
     const login = await call('/api/auth/login', { method: 'POST', body: { email: a.email, password: PASSWORD } });
-    check(login.status === 200 && Boolean(login.json?.data?.token), 'login succeeds', `HTTP ${login.status}`);
+    check(login.status === 200 && Boolean(login.json?.data?.user?.id), 'login succeeds', `HTTP ${login.status}`);
     const row = (await rest(`/rest/v1/user_storage?user_id=eq.${a.id}&select=last_login_at`)).json?.[0];
     const age = row?.last_login_at ? Date.now() - Date.parse(row.last_login_at) : Infinity;
     check(age < 120_000, 'last_login_at is written', row?.last_login_at ?? 'null');

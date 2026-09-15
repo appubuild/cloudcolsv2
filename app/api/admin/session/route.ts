@@ -1,7 +1,7 @@
 import "server-only";
-import { handler, requireUser, ApiError } from "@/lib/api/auth";
+import { handler, requireUser, setResponseHeader } from "@/lib/api/auth";
 import { createAdminClient } from "@/lib/supabase/server";
-import { issueAdminToken } from "@/lib/api/adminAuth";
+import { issueAdminToken, adminSessionCookie } from "@/lib/api/adminAuth";
 import { audit } from "@/lib/api/audit";
 
 export const dynamic = "force-dynamic";
@@ -35,7 +35,7 @@ export const GET = handler(async (req: Request) => {
   // Not staff, or staff who have been switched off. Both answer the same way: the
   // page needs to say "you cannot go here", not "your password was wrong".
   if (!staff || !staff.is_active) {
-    return { isAdmin: false as const, token: null, role: null };
+    return { isAdmin: false as const, role: null };
   }
 
   const identity = {
@@ -56,5 +56,7 @@ export const GET = handler(async (req: Request) => {
     metadata: { email: identity.email, role: identity.role },
   });
 
-  return { isAdmin: true as const, token: issueAdminToken(identity), role: identity.role };
+  // Set as the httpOnly staff cookie, never returned to page script.
+  setResponseHeader(req, "set-cookie", adminSessionCookie(req, issueAdminToken(identity)));
+  return { isAdmin: true as const, role: identity.role };
 });

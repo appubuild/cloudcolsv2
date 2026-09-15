@@ -2,43 +2,65 @@
 
 import { useEffect, useState } from "react";
 
-// Admin session is SEPARATE from the end-user session (per the brief).
-// In api mode we store the server-issued admin JWT + role; in mock mode we keep
-// the demo role. The token is never persisted in a way that's readable by the
-// user-auth client bundle's secrets (it's a short-lived staff JWT).
+// The staff session lives in an httpOnly cookie (cc_admin) that page script cannot
+// read — it used to be a token in localStorage, readable by anything on the page.
+// What is kept here is only the role, and only to decide what to draw: every admin
+// endpoint checks the real session and the live role on each call.
 
-const TOKEN_KEY = "cloudcols.admin.token";
 const ROLE_KEY = "cloudcols.admin.role";
+/** Where the token used to be stored. Removed on sight from browsers that still have it. */
+const LEGACY_TOKEN_KEY = "cloudcols.admin.token";
 
 export interface AdminSession {
-  token: string | null;
   role: string | null;
 }
 
-export function saveAdminSession(token: string, role: string): void {
-  localStorage.setItem(TOKEN_KEY, token);
-  localStorage.setItem(ROLE_KEY, role);
+function dropLegacyToken(): void {
+  try {
+    localStorage.removeItem(LEGACY_TOKEN_KEY);
+  } catch {
+    /* storage unavailable */
+  }
+}
+
+export function saveAdminSession(role: string): void {
+  try {
+    localStorage.setItem(ROLE_KEY, role);
+  } catch {
+    /* storage unavailable: the role is only cosmetic */
+  }
+  dropLegacyToken();
 }
 
 export function clearAdminSession(): void {
-  localStorage.removeItem(TOKEN_KEY);
-  localStorage.removeItem(ROLE_KEY);
+  try {
+    localStorage.removeItem(ROLE_KEY);
+  } catch {
+    /* storage unavailable */
+  }
+  dropLegacyToken();
 }
 
-export function getAdminToken(): string | null {
-  if (typeof window === "undefined") return null;
-  return localStorage.getItem(TOKEN_KEY);
+/** Signs out of the console: clears the role here and the httpOnly cookie on the server. */
+export async function signOutAdmin(): Promise<void> {
+  clearAdminSession();
+  await fetch("/api/admin/logout", { method: "POST", credentials: "same-origin" }).catch(() => undefined);
 }
 
 export function getAdminRole(): string | null {
   if (typeof window === "undefined") return null;
-  return localStorage.getItem(ROLE_KEY);
+  try {
+    return localStorage.getItem(ROLE_KEY);
+  } catch {
+    return null;
+  }
 }
 
 export function useAdminSession(): AdminSession {
-  const [session, setSession] = useState<AdminSession>({ token: null, role: null });
+  const [session, setSession] = useState<AdminSession>({ role: null });
   useEffect(() => {
-    setSession({ token: getAdminToken(), role: getAdminRole() });
+    dropLegacyToken();
+    setSession({ role: getAdminRole() });
   }, []);
   return session;
 }

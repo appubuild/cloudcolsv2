@@ -1,18 +1,27 @@
 import "server-only";
-import { limited, ApiError, DEFAULT_LIMITS } from "@/lib/api/auth";
+import { limited, ApiError, DEFAULT_LIMITS, setResponseHeader } from "@/lib/api/auth";
 import { createAdminClient } from "@/lib/supabase/server";
 import { ensureProfile } from "@/lib/api/profiles";
 import { checkPassword } from "@/lib/api/password";
+import { isSameOrigin, sessionCookies, tokensFrom } from "@/lib/api/session";
 
 export const dynamic = "force-dynamic";
 
 interface LoginBody {
   email: string;
   password: string;
+  /**
+   * Native clients (the mobile app) keep their own tokens and ask for them. The web
+   * app does not: its session is set as httpOnly cookies and never reaches page script.
+   */
+  tokenMode?: boolean;
 }
 
 export const POST = limited(async (req: Request) => {
-  const body = (await req.json()) as LoginBody;
+  // Another site must not be able to sign a visitor in to an account of its choosing.
+  if (!isSameOrigin(req)) throw new ApiError("CSRF_REJECTED", 403, "This request did not come from CloudCols.");
+
+  const body = (await req.json().catch(() => ({}))) as LoginBody;
   if (!body.email || !body.password) {
     throw new ApiError("INVALID_INPUT", 400, "Email and password are required.");
   }
@@ -34,8 +43,11 @@ export const POST = limited(async (req: Request) => {
     .eq("user_id", user.id);
   if (touchError) console.error("[login] could not record sign-in", touchError.message);
 
+  const tokens = tokensFrom(session);
+  for (const c of sessionCookies(req, tokens)) setResponseHeader(req, "set-cookie", c);
+
   return {
-    token: session.access_token,
+    ...(body.tokenMode ? { token: tokens.accessToken, refreshToken: tokens.refreshToken } : {}),
     user: {
       id: user.id,
       email: user.email ?? "",

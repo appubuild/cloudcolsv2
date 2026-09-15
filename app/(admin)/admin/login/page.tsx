@@ -9,7 +9,7 @@ import { Input, Label } from "@/components/ui/input";
 import { Logo } from "@/components/brand/logo";
 import { Spinner } from "@/components/ui/misc";
 import { toast } from "@/lib/store/toast";
-import { saveAdminSession, getAdminToken } from "@/lib/store/admin";
+import { saveAdminSession, getAdminRole } from "@/lib/store/admin";
 import { useAuthStore } from "@/lib/store/auth";
 import { apiClient } from "@/lib/api/client";
 import { env } from "@/lib/config/env";
@@ -45,8 +45,9 @@ export default function AdminLoginPage() {
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    // Already holding a staff session: nothing to ask.
-    if (getAdminToken()) {
+    // Already holding a staff session: nothing to ask. (If the cookie behind it has
+    // lapsed, the first admin call says so and sends the page back here.)
+    if (getAdminRole()) {
       router.replace("/admin");
       return;
     }
@@ -59,11 +60,11 @@ export default function AdminLoginPage() {
 
     let cancelled = false;
     apiClient
-      .get<{ isAdmin: boolean; token: string | null; role: string | null }>("/api/admin/session")
+      .get<{ isAdmin: boolean; role: string | null }>("/api/admin/session")
       .then((res) => {
         if (cancelled) return;
-        if (res.isAdmin && res.token && res.role) {
-          saveAdminSession(res.token, res.role);
+        if (res.isAdmin && res.role) {
+          saveAdminSession(res.role);
           router.replace("/admin");
           return;
         }
@@ -94,12 +95,13 @@ export default function AdminLoginPage() {
       try {
         const res = await fetch("/api/admin/login", {
           method: "POST",
+          credentials: "same-origin",
           headers: { "content-type": "application/json" },
           body: JSON.stringify({ email, password }),
         });
         const json = await res.json();
-        if (!res.ok || !json?.data?.token) throw new Error(json?.error?.message ?? "Sign-in failed");
-        saveAdminSession(json.data.token, json.data.identity.role);
+        if (!res.ok || !json?.data?.identity?.role) throw new Error(json?.error?.message ?? "Sign-in failed");
+        saveAdminSession(json.data.identity.role);
         toast.success("Signed in to admin", `${json.data.identity.role.replace("_", " ")} session started.`);
         router.push("/admin");
         return;
@@ -112,9 +114,9 @@ export default function AdminLoginPage() {
 
     // Mock mode only. There is no server to ask, so the demo roles stand in.
     if (email === "super@cloudcols.com" && password === "admin") {
-      saveAdminSession("demo-super-admin", "super_admin");
+      saveAdminSession("super_admin");
     } else {
-      saveAdminSession("demo-support", "support");
+      saveAdminSession("support");
     }
     toast.success("Signed in to admin");
     router.push("/admin");

@@ -11,17 +11,14 @@
 // the caller writes afterwards goes through createAdminClient() as it should.
 
 import "server-only";
-import { createClient, type Session, type User } from "@supabase/supabase-js";
-import { serverEnv } from "@/lib/config/server-env";
+import type { Session, User } from "@supabase/supabase-js";
+import { isolatedAuthClient } from "./session";
 
 export async function checkPassword(
   email: string,
   password: string,
 ): Promise<{ session: Session; user: User } | null> {
-  const client = createClient(serverEnv.supabaseUrl, serverEnv.supabaseAnonKey, {
-    auth: { persistSession: false, autoRefreshToken: false },
-  });
-  const { data, error } = await client.auth.signInWithPassword({ email, password });
+  const { data, error } = await isolatedAuthClient().auth.signInWithPassword({ email, password });
   if (error || !data.session || !data.user) return null;
   return { session: data.session, user: data.user };
 }

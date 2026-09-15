@@ -29,6 +29,15 @@ import {
  * caller should issue an unbound link: the same capability URL the product has always
  * used, rather than one nothing can satisfy.
  */
+/** The Set-Cookie value that removes the delivery cookie, or null if none could exist. */
+export function clearedDeliveryCookie(req: Request): string | null {
+  const cdnDomain = serverEnv.cdn.domain;
+  if (!cdnDomain) return null;
+  const domain = cookieDomainFor(new URL(req.url).hostname, cdnDomain);
+  if (!domain) return null;
+  return [`${DELIVERY_COOKIE}=`, `Domain=${domain}`, "Path=/", "Max-Age=0", "HttpOnly", "Secure", "SameSite=Lax"].join("; ");
+}
+
 export async function establishDeliverySession(
   req: Request,
   userId: string,

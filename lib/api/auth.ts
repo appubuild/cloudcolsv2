@@ -6,6 +6,7 @@ import "server-only";
 import { createAdminClient } from "@/lib/supabase/server";
 import { checkRateLimit, type RateLimitResult } from "./rateLimit";
 import { verifySupabaseJwt } from "./jwt";
+import { readSession, isSameOrigin, refreshTokens, sessionCookies, clearedSessionCookies } from "./session";
 
 export class ApiError extends Error {
   code: string;
@@ -20,9 +21,44 @@ export class ApiError extends Error {
 export interface AuthUser {
   id: string;
   email: string;
+  /** The access token this request was authenticated with. Server-side only; never returned. */
+  accessToken: string;
+  /** Assurance level: "aal1" is a password alone, "aal2" includes a second factor. */
+  aal: string | null;
 }
 
 const WRITE_METHODS = new Set(["POST", "PATCH", "PUT", "DELETE"]);
+
+/** The `aal` claim of a token Auth has already accepted. Read, not verified — Auth did that. */
+function unverifiedAal(token: string): string | null {
+  try {
+    const payload = token.split(".")[1] ?? "";
+    const json = JSON.parse(atob(payload.replace(/-/g, "+").replace(/_/g, "/"))) as { aal?: unknown };
+    return typeof json.aal === "string" ? json.aal : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Who a token belongs to, or null if nobody.
+ *
+ * Checked against the project's published signing key, which needs no network once the
+ * key is cached (lib/api/jwt.ts says what that does and does not give up). Only when
+ * that cannot decide — keys unreachable, a key it has never seen — is Auth asked. A
+ * token that check finds wrong is refused outright; asking Auth as well would only let
+ * a forger try twice.
+ */
+async function identify(admin: ReturnType<typeof createAdminClient>, token: string): Promise<AuthUser | null> {
+  const local = await verifySupabaseJwt(token);
+  if (local.status === "ok") {
+    return { id: local.claims.sub, email: local.claims.email, accessToken: token, aal: local.claims.aal };
+  }
+  if (local.status === "invalid") return null;
+  const { data, error } = await admin.auth.getUser(token);
+  if (error || !data.user) return null;
+  return { id: data.user.id, email: data.user.email ?? "", accessToken: token, aal: unverifiedAal(token) };
+}
 
 /**
  * Extract and verify an authenticated user from a request.
@@ -37,27 +73,38 @@ const WRITE_METHODS = new Set(["POST", "PATCH", "PUT", "DELETE"]);
  * it has no user session, and money that arrived still has to be recorded.
  */
 export async function requireUser(request: Request): Promise<AuthUser> {
-  const auth = request.headers.get("authorization") ?? "";
-  const token = auth.replace(/^Bearer\s+/i, "");
-  if (!token) throw new ApiError("UNAUTHORIZED", 401, "Missing authorization token.");
+  // A Bearer header (mobile app, scripts) or the httpOnly session cookies (the web app).
+  // lib/api/session.ts explains the cookies.
+  const session = readSession(request);
+  if (!session.source) throw new ApiError("UNAUTHORIZED", 401, "Missing authorization token.");
+
+  // Cookies are sent by the browser whoever asked it to, so a cookie-authenticated
+  // write must prove it came from our own pages. Bearer tokens cannot be sent by
+  // another site without having been stolen first, so they are not asked.
+  if (session.source === "cookie" && !isSameOrigin(request)) {
+    throw new ApiError("CSRF_REJECTED", 403, "This request did not come from CloudCols.");
+  }
 
   const admin = createAdminClient();
+  let user = session.accessToken ? await identify(admin, session.accessToken) : null;
 
-  // Checked here against the project's published signing key, which needs no network
-  // once the key is cached (lib/api/jwt.ts says what that does and does not give up).
-  // Only when this cannot decide — keys unreachable, a key it has never seen — is Auth
-  // asked instead. A token this can check and finds wrong is refused outright; asking
-  // Auth about it as well would only let a forger try twice.
-  let user: AuthUser;
-  const local = await verifySupabaseJwt(token);
-  if (local.status === "ok") {
-    user = { id: local.claims.sub, email: local.claims.email };
-  } else if (local.status === "invalid") {
+  // A cookie session whose access token has lapsed — they last an hour — is renewed
+  // here, on whichever request notices first, and the new cookies ride back on its
+  // response. The page never handles a token and never has to retry.
+  if (!user && session.source === "cookie" && session.refreshToken) {
+    const fresh = await refreshTokens(session.refreshToken);
+    if (fresh) {
+      user = await identify(admin, fresh.accessToken);
+      if (user) for (const c of sessionCookies(request, fresh)) setResponseHeader(request, "set-cookie", c);
+    }
+  }
+
+  if (!user) {
+    // A dead cookie session is cleared, so the page stops presenting it.
+    if (session.source === "cookie") {
+      for (const c of clearedSessionCookies(request)) setResponseHeader(request, "set-cookie", c);
+    }
     throw new ApiError("UNAUTHORIZED", 401, "Invalid or expired session.");
-  } else {
-    const { data, error } = await admin.auth.getUser(token);
-    if (error || !data.user) throw new ApiError("UNAUTHORIZED", 401, "Invalid or expired session.");
-    user = { id: data.user.id, email: data.user.email ?? "" };
   }
 
   // A suspended account is refused everything, read included. Suspension exists for
@@ -171,9 +218,11 @@ export function handler<Arg, Res>(
       const message = deliberate || status < 500 ? err.message : "Internal server error.";
       // Never expose stack traces to clients in production.
       if (status >= 500) console.error("[api]", code, err.message);
+      // Headers a route set still go out on an error: clearing a dead session's
+      // cookies happens exactly when the answer is a 401.
       return Response.json(
         { ok: false, error: { code, message } },
-        { status, headers: { "cache-control": "no-store" } }
+        { status, headers: responseHeaders(req, { "cache-control": "no-store" }) }
       );
     }
   };
@@ -232,6 +281,9 @@ export const DEFAULT_LIMITS = {
   login: { name: "login", limit: 10, windowMs: 60_000 },
   signup: { name: "signup", limit: 5, windowMs: 60_000 },
   reset: { name: "reset", limit: 3, windowMs: 60_000 },
+  // Using a reset link is separate from asking for one: sharing the budget meant two
+  // requests for a link used up the attempts to set the password.
+  resetPassword: { name: "resetPassword", limit: 5, windowMs: 60_000 },
   // Also a password check, so it gets a login-like limit: a stolen session must not be
   // able to guess the password here instead.
   accountDelete: { name: "accountDelete", limit: 5, windowMs: 60_000 },
