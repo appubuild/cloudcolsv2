@@ -291,13 +291,24 @@ function DangerTab() {
   const { data: me } = useMe();
   const qc = useQueryClient();
   const [confirmText, setConfirmText] = useState("");
+  const [password, setPassword] = useState("");
+  const [busy, setBusy] = useState(false);
 
   const del = async () => {
     if (confirmText !== "DELETE") return toast.error("Type DELETE to confirm");
+    if (!password) return toast.error("Enter your password to confirm");
     if (!me) return;
-    await authRepo.deleteAccount(me.id);
+    setBusy(true);
+    try {
+      await authRepo.deleteAccount(me.id, password);
+    } catch (e) {
+      setBusy(false);
+      return toast.error("Account not deleted", (e as Error).message);
+    }
+    await authRepo.signOut().catch(() => undefined);
     await qc.invalidateQueries();
-    toast.success("Account deleted", "Your files have been removed.");
+    // True to what happens: the account is gone now; the bytes follow in batches.
+    toast.success("Account deleted", "Your files are being removed from storage.");
     router.push("/");
   };
 
@@ -312,8 +323,12 @@ function DangerTab() {
           <Label htmlFor="dc">Type <code className="text-error">DELETE</code> to confirm</Label>
           <Input id="dc" value={confirmText} onChange={(e) => setConfirmText(e.target.value)} placeholder="DELETE" />
         </div>
+        <div className="space-y-1.5">
+          <Label htmlFor="dp">Current password</Label>
+          <Input id="dp" type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} />
+        </div>
         <div className="flex justify-end">
-          <Button variant="destructive" onClick={del}>Delete my account</Button>
+          <Button variant="destructive" onClick={del} disabled={busy}>{busy ? "Deleting…" : "Delete my account"}</Button>
         </div>
       </CardContent>
     </Card>

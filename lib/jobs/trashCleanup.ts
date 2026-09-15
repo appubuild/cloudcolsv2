@@ -25,7 +25,7 @@ export async function runTrashCleanup(): Promise<string> {
   const cutoff = new Date(Date.now() - retentionDays * 86400000).toISOString();
   const { data, error } = await admin
     .from("files")
-    .select("id, object_key, owner_id")
+    .select("id, object_key, owner_id, thumbnail_url")
     .not("trashed_at", "is", null)
     .lt("trashed_at", cutoff);
 
@@ -34,6 +34,10 @@ export async function runTrashCleanup(): Promise<string> {
 
   for (const file of (data ?? [])) {
     await deleteObject(String(file.object_key));
+    // The thumbnail is a second object (thumbnail_url holds its key). Deleting only the
+    // file left every thumbnail in the bucket after its file was gone for good.
+    const thumb = file.thumbnail_url ? String(file.thumbnail_url) : "";
+    if (thumb && thumb.startsWith(`${String(file.owner_id)}/`)) await deleteObject(thumb);
     await admin.from("files").delete().eq("id", String(file.id));
     deleted += 1;
   }

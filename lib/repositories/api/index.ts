@@ -113,8 +113,8 @@ class ApiAuthRepository implements AuthRepository {
     return apiClient.patch<User>("/api/profile", { name: patch.name, avatarUrl: patch.avatarUrl });
   }
 
-  async deleteAccount(userId: string): Promise<void> {
-    await apiClient.post("/api/auth/delete");
+  async deleteAccount(userId: string, password: string): Promise<void> {
+    await apiClient.post("/api/auth/delete", { password });
   }
 }
 

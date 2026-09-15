@@ -555,7 +555,7 @@ class MockAuthRepository implements AuthRepository {
     return user;
   }
 
-  async deleteAccount(userId: string) {
+  async deleteAccount(userId: string, _password?: string) {
     await delay();
     const db = getDb();
     const idx = db.users.findIndex((u) => u.id === userId);

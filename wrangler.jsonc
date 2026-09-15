@@ -31,7 +31,8 @@
   // a quiet hour rather than a tight loop. Without this the endpoints existed and
   // nothing ever called them.
   "triggers": {
-    "crons": ["17 3 * * *"]
+    // Hourly: emptying storage of deleted accounts (lib/jobs/storagePurge.ts).
+    "crons": ["17 3 * * *", "43 * * * *"]
   },
 
   // Public configuration only. NEXT_PUBLIC_* values are inlined into the browser

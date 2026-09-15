@@ -175,6 +175,80 @@ export async function deleteObject(objectKey: string): Promise<void> {
   }
 }
 
+/** Undo the five entities XML escapes. Keys are user-influenced; `&` in one is real. */
+function unescapeXml(s: string): string {
+  return s
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'")
+    .replace(/&amp;/g, "&");
+}
+
+/**
+ * Up to `max` object keys under `prefix` (one page; storage caps a page at 1000).
+ *
+ * One page on purpose. The caller deletes what it gets and asks again, so a listing
+ * never has to be held while its objects disappear underneath it, and a job can stop
+ * at its budget without having listed work it will not do.
+ */
+export async function listObjects(prefix: string, max = 1000): Promise<string[]> {
+  const { sig, endpoint, bucket } = config();
+  const query: Record<string, string> = {
+    "list-type": "2",
+    prefix,
+    "max-keys": String(Math.max(1, Math.min(1000, Math.floor(max)))),
+  };
+  const headers = await signRequest(sig, { method: "GET", endpoint, path: `/${bucket}`, query });
+  const search = new URLSearchParams(query).toString();
+  const res = await fetch(`${originOf(endpoint)}/${bucket}?${search}`, { headers });
+  const body = await res.text();
+  if (!res.ok) {
+    throw new Error(`Storage refused to list objects (HTTP ${res.status}). ${body.slice(0, 200)}`);
+  }
+  const keys: string[] = [];
+  for (const chunk of body.split("<Contents>").slice(1)) {
+    const key = xmlTag(chunk.split("</Contents>")[0] ?? "", "Key");
+    if (key) keys.push(unescapeXml(key));
+  }
+  return keys;
+}
+
+/**
+ * The bucket's top-level "folders" — one per account, since every key is
+ * "<user id>/...". Used to find folders whose account no longer exists.
+ *
+ * Paginated and bounded: ten pages is ten thousand accounts, and a provider that keeps
+ * saying "truncated" without advancing must not loop a cron run forever.
+ */
+export async function listTopLevelPrefixes(maxPages = 10): Promise<string[]> {
+  const { sig, endpoint, bucket } = config();
+  const out: string[] = [];
+  let token: string | undefined;
+
+  for (let page = 0; page < maxPages; page += 1) {
+    const query: Record<string, string> = { "list-type": "2", delimiter: "/" };
+    if (token) query["continuation-token"] = token;
+    const headers = await signRequest(sig, { method: "GET", endpoint, path: `/${bucket}`, query });
+    const search = new URLSearchParams(query).toString();
+    const res = await fetch(`${originOf(endpoint)}/${bucket}?${search}`, { headers });
+    const body = await res.text();
+    if (!res.ok) {
+      throw new Error(`Storage refused to list folders (HTTP ${res.status}). ${body.slice(0, 200)}`);
+    }
+    for (const chunk of body.split("<CommonPrefixes>").slice(1)) {
+      const prefix = xmlTag(chunk.split("</CommonPrefixes>")[0] ?? "", "Prefix");
+      if (prefix) out.push(unescapeXml(prefix));
+    }
+    if (xmlTag(body, "IsTruncated") !== "true") break;
+    const next = xmlTag(body, "NextContinuationToken");
+    if (!next || unescapeXml(next) === token) break;
+    token = unescapeXml(next);
+  }
+
+  return out;
+}
+
 // `publicUrl()` used to live here: it built an unsigned bucket URL for a key and had
 // no callers. Against a private bucket that URL is a guaranteed 403, and having it in
 // reach invited exactly the mistake this phase existed to fix — handing a reader a raw

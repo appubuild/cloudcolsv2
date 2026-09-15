@@ -1,12 +1,13 @@
 import { handler, ApiError } from "@/lib/api/auth";
-import { runJob } from "@/lib/jobs";
+import { runJob, JOB_NAMES } from "@/lib/jobs";
 import type { JobName } from "@/lib/jobs";
 import { serverConfig } from "@/lib/config/server-env";
 import { secretEqual } from "@/lib/api/crypto";
 
 export const dynamic = "force-dynamic";
 
-const ALLOWED: JobName[] = ["webhook-delivery", "trash-cleanup", "inactivity"];
+// From the job registry, not a copy of it — see JOB_NAMES.
+const ALLOWED: readonly JobName[] = JOB_NAMES;
 
 /**
  * Runs a background job. Scheduler only.

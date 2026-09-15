@@ -13,7 +13,21 @@ import { audit } from "@/lib/api/audit";
  * parked video and audio in "processing" on the way. Thumbnails are made in the
  * browser at upload time now (lib/services/thumbnailer.ts), so there is no job.
  */
-export type JobName = "webhook-delivery" | "trash-cleanup" | "inactivity" | "abandoned-uploads";
+/**
+ * Every job, once. The type and the run endpoint's allow-list both come from this.
+ * The endpoint used to keep its own copy, which fell behind: abandoned-uploads was
+ * scheduled daily and refused as "Unknown job" on every run, with nothing to say so.
+ */
+export const JOB_NAMES = [
+  "webhook-delivery",
+  "trash-cleanup",
+  "inactivity",
+  "abandoned-uploads",
+  "storage-purge",
+  "orphan-sweep",
+] as const;
+
+export type JobName = (typeof JOB_NAMES)[number];
 
 export interface JobContext {
   name: JobName;
@@ -31,6 +45,16 @@ export async function runJob(name: JobName, data?: Record<string, unknown>): Pro
       case "abandoned-uploads": {
         const { runAbandonedUploads } = await import("./abandonedUploads");
         const result = await runAbandonedUploads();
+        return { name, ok: true, message: result };
+      }
+      case "orphan-sweep": {
+        const { runOrphanSweep } = await import("./storagePurge");
+        const result = await runOrphanSweep();
+        return { name, ok: true, message: result };
+      }
+      case "storage-purge": {
+        const { runStoragePurge } = await import("./storagePurge");
+        const result = await runStoragePurge();
         return { name, ok: true, message: result };
       }
       case "trash-cleanup": {

@@ -107,7 +107,8 @@ export interface AuthRepository {
    * free and a payment a provider confirmed. Both live on SubscriptionRepository —
    * checkout() to start, and the signed webhook to finish.
    */
-  deleteAccount(userId: string): Promise<void>;
+  /** Needs the current password again: a session alone is not enough to delete everything. */
+  deleteAccount(userId: string, password: string): Promise<void>;
 }
 
 export interface PlanRepository {
