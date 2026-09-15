@@ -2,6 +2,7 @@ import "server-only";
 import { limited, ApiError, DEFAULT_LIMITS } from "@/lib/api/auth";
 import { createAdminClient } from "@/lib/supabase/server";
 import { ensureProfile } from "@/lib/api/profiles";
+import { checkPassword } from "@/lib/api/password";
 
 export const dynamic = "force-dynamic";
 
@@ -15,27 +16,29 @@ export const POST = limited(async (req: Request) => {
   if (!body.email || !body.password) {
     throw new ApiError("INVALID_INPUT", 400, "Email and password are required.");
   }
-  const admin = createAdminClient();
-  const { data, error } = await admin.auth.signInWithPassword({
-    email: body.email,
-    password: body.password,
-  });
-  if (error || !data.session) {
+
+  // On its own client — see lib/api/password.ts for why that matters.
+  const signedIn = await checkPassword(body.email, body.password);
+  if (!signedIn) {
     throw new ApiError("INVALID_CREDENTIALS", 401, "Invalid email or password.");
   }
-  const profile = await ensureProfile(data.user.id);
-  await admin
+  const { session, user } = signedIn;
+
+  const profile = await ensureProfile(user.id);
+
+  // Signing in is activity: any inactivity warning already sent no longer applies,
+  // and a later lapse is warned about from the start (lib/jobs/inactivity.ts).
+  const { error: touchError } = await createAdminClient()
     .from("user_storage")
-    // Signing in is activity: any inactivity warning already sent no longer applies,
-    // and a later lapse is warned about from the start (lib/jobs/inactivity.ts).
     .update({ last_login_at: new Date().toISOString(), inactivity_stage: null })
-    .eq("user_id", data.user.id);
+    .eq("user_id", user.id);
+  if (touchError) console.error("[login] could not record sign-in", touchError.message);
 
   return {
-    token: data.session.access_token,
+    token: session.access_token,
     user: {
-      id: data.user.id,
-      email: data.user.email ?? "",
+      id: user.id,
+      email: user.email ?? "",
       planId: profile.plan_id,
       storageQuotaBytes: profile.storage_quota_bytes,
       storageUsedBytes: profile.storage_used_bytes,

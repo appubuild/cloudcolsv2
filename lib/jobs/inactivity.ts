@@ -10,11 +10,16 @@ import { audit } from "@/lib/api/audit";
 import { notify } from "@/lib/notifications";
 import { getSettings } from "@/lib/settings/system";
 
+/**
+ * Days of inactivity at which each step happens. Absolute, not relative: the settings
+ * are described as "days of inactivity before the X", and that is how they are stored
+ * (365 / 395 / 425). They used to be added together — with warn_days counted twice —
+ * which would have put the final warning at ~1125 days and deletion at ~1550.
+ */
 export interface InactivityPolicy {
-  inactiveDays: number;
-  warningDays: number;
-  finalWarningDays: number;
-  graceDays: number;
+  warnDays: number;
+  finalWarnDays: number;
+  deleteDays: number;
 }
 
 /**
@@ -32,17 +37,17 @@ export interface InactivityPolicy {
 export async function policy(): Promise<InactivityPolicy> {
   const s = await getSettings();
   return {
-    inactiveDays: s.inactivity_warn_days,
-    warningDays: s.inactivity_warn_days,
-    finalWarningDays: s.inactivity_final_warn_days,
-    graceDays: s.inactivity_grace_days,
+    warnDays: s.inactivity_warn_days,
+    finalWarnDays: s.inactivity_final_warn_days,
+    deleteDays: s.inactivity_grace_days,
   };
 }
 
 export async function runInactivityPolicy(data?: { dryRun?: boolean }): Promise<string> {
   const p = await policy();
   const admin = createAdminClient();
-  const cutoff = Date.now() - p.inactiveDays * 86400000;
+  // Days between the final warning and deletion — what the final notice promises.
+  const graceDays = Math.max(0, p.deleteDays - p.finalWarnDays);
 
   const { data: users, error } = await admin
     .from("user_storage")
@@ -56,7 +61,7 @@ export async function runInactivityPolicy(data?: { dryRun?: boolean }): Promise<
     const lastActivity = u.last_login_at ? new Date(u.last_login_at).getTime() : new Date(u.created_at).getTime();
     const daysInactive = Math.floor((Date.now() - lastActivity) / 86400000);
 
-    if (daysInactive < p.inactiveDays) continue;
+    if (daysInactive < p.warnDays) continue;
 
     // What this account has already been sent. The job runs daily; without this, every
     // day inside a window re-sent that window's email (migration 0024).
@@ -67,33 +72,33 @@ export async function runInactivityPolicy(data?: { dryRun?: boolean }): Promise<
     const setStage = (next: "warned" | "final_warned") =>
       admin.from("user_storage").update({ inactivity_stage: next }).eq("user_id", userId);
 
-    if (daysInactive >= p.inactiveDays + p.warningDays + p.finalWarningDays + p.graceDays) {
+    if (daysInactive >= p.deleteDays) {
       // Beyond grace → mark pending deletion (deletion itself is a separate, explicit step).
       // Happens once by construction: the status change takes the account out of this query.
       if (!data?.dryRun) {
         await admin.from("user_storage").update({ status: "pending_deletion" }).eq("user_id", userId);
         const emailAddr = await lookupEmail();
-        if (emailAddr) await email.inactiveFinal(emailAddr, { name: emailAddr.split("@")[0] ?? "there", grace: String(p.graceDays) }).catch(() => {});
+        if (emailAddr) await email.inactiveFinal(emailAddr, { name: emailAddr.split("@")[0] ?? "there", grace: String(graceDays) }).catch(() => {});
         await audit({ actorType: "system", action: "user.schedule_deletion", targetType: "user", targetId: userId, metadata: { daysInactive } });
         scheduled += 1;
       }
-    } else if (daysInactive >= p.inactiveDays + p.warningDays + p.finalWarningDays) {
+    } else if (daysInactive >= p.finalWarnDays) {
       if (stage === "final_warned") continue;
       if (!data?.dryRun) {
         const emailAddr = await lookupEmail();
-        if (emailAddr) await email.inactiveFinal(emailAddr, { name: emailAddr.split("@")[0] ?? "there", grace: String(p.graceDays) }).catch(() => {});
+        if (emailAddr) await email.inactiveFinal(emailAddr, { name: emailAddr.split("@")[0] ?? "there", grace: String(graceDays) }).catch(() => {});
         await notify({
           userId,
           type: "inactivity_final",
           title: "Final notice: this account is inactive",
-          body: `It will be scheduled for deletion after a ${p.graceDays}-day grace period. Signing in cancels that — nothing else is needed.`,
+          body: `It will be scheduled for deletion after a ${graceDays}-day grace period. Signing in cancels that — nothing else is needed.`,
           link: "/app",
         });
         await setStage("final_warned");
         await audit({ actorType: "system", action: "user.final_warning", targetType: "user", targetId: userId, metadata: { daysInactive } });
       }
       finalWarned += 1;
-    } else if (daysInactive >= p.inactiveDays) {
+    } else {
       if (stage) continue;
       if (!data?.dryRun) {
         const emailAddr = await lookupEmail();

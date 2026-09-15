@@ -69,7 +69,7 @@ export async function requireUser(request: Request): Promise<AuthUser> {
   // working until its token expired — exactly the window suspension needs to close.
   const { data: profile } = await admin
     .from("user_storage")
-    .select("status")
+    .select("status, last_login_at")
     .eq("user_id", user.id)
     .maybeSingle();
   if (profile && String(profile.status) === "suspended") {
@@ -78,6 +78,27 @@ export async function requireUser(request: Request): Promise<AuthUser> {
       403,
       "This account is suspended. Contact support if you think that is a mistake.",
     );
+  }
+
+  // Activity, for the inactivity policy. Recorded here rather than only at sign-in:
+  // a session refreshes itself for weeks without anyone typing a password, and an
+  // account used every day that way must not look abandoned. At most one write per
+  // account per day. Any activity also withdraws an inactivity warning, and brings
+  // back an account that inactivity had scheduled for deletion.
+  if (profile) {
+    const pendingDeletion = String(profile.status) === "pending_deletion";
+    const last = profile.last_login_at ? Date.parse(String(profile.last_login_at)) : 0;
+    if (pendingDeletion || Date.now() - last > 86_400_000) {
+      const { error: touchError } = await admin
+        .from("user_storage")
+        .update({
+          last_login_at: new Date().toISOString(),
+          inactivity_stage: null,
+          ...(pendingDeletion ? { status: "active" } : {}),
+        })
+        .eq("user_id", user.id);
+      if (touchError) console.error("[auth] could not record activity", touchError.message);
+    }
   }
 
   if (WRITE_METHODS.has(request.method.toUpperCase())) {
@@ -211,6 +232,9 @@ export const DEFAULT_LIMITS = {
   login: { name: "login", limit: 10, windowMs: 60_000 },
   signup: { name: "signup", limit: 5, windowMs: 60_000 },
   reset: { name: "reset", limit: 3, windowMs: 60_000 },
+  // Also a password check, so it gets a login-like limit: a stolen session must not be
+  // able to guess the password here instead.
+  accountDelete: { name: "accountDelete", limit: 5, windowMs: 60_000 },
   shareCreate: { name: "shareCreate", limit: 30, windowMs: 60_000 },
   downloadUrl: { name: "downloadUrl", limit: 60, windowMs: 60_000 },
   uploadTicket: { name: "uploadTicket", limit: 60, windowMs: 60_000 },
