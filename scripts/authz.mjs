@@ -135,8 +135,11 @@ function mintAdminToken(email, role) {
   return `${header}.${payload}.${sig}`;
 }
 
+// What the probe created, so cleanUp() can remove it however main() ends.
+const cleanup = [];
+const adminEmails = [];
+
 async function main() {
-  const cleanup = [];
   console.log('\nAuthorization probe\n');
 
   const user = await makeUser('user');
@@ -144,10 +147,11 @@ async function main() {
   cleanup.push(user.id, other.id);
   if (!user.token || !other.token) {
     console.log('  FAIL could not create test accounts');
-    process.exit(1);
+    return 1;
   }
 
   // A support admin, created for the probe and removed at the end.
+  adminEmails.push(other.email);
   await supabase('/rest/v1/admins', {
     body: { email: other.email, name: 'Authz probe', role: 'support', is_active: true, user_id: other.id },
   });
@@ -292,20 +296,36 @@ async function main() {
   await refused('an unknown token resolves to nothing', '/api/shares/resolve?token=definitely-not-real', {}, 404);
   await refused('and cannot be downloaded', '/api/shares/download?token=definitely-not-real', {}, 404);
 
-  // --- cleanup -------------------------------------------------------------
-  await supabase(`/rest/v1/admins?email=eq.${encodeURIComponent(other.email)}`, { method: 'DELETE' });
+  console.log(`\n  ${pass} passed, ${fail} failed\n`);
+  return fail === 0 ? 0 : 1;
+}
+
+/**
+ * Removes what the probe created — also when it crashed half way, which used to leave
+ * its accounts and a live support-admin row behind (a network timeout to storage did
+ * exactly that). Each account's storage folder is queued for the purge job before the
+ * account goes: deleting a user removes its rows, not its bytes.
+ */
+async function cleanUp() {
+  for (const email of adminEmails) {
+    await supabase(`/rest/v1/admins?email=eq.${encodeURIComponent(email)}`, { method: 'DELETE' });
+  }
   for (const id of cleanup) {
+    if (!id) continue;
+    await supabase('/rest/v1/storage_purge_queue', { body: { prefix: `${id}/`, reason: 'probe_cleanup' } });
     await fetch(`${SUPA}/auth/v1/admin/users/${id}`, {
       method: 'DELETE',
       headers: { apikey: SERVICE, authorization: `Bearer ${SERVICE}` },
     });
   }
-
-  console.log(`\n  ${pass} passed, ${fail} failed\n`);
-  process.exit(fail === 0 ? 0 : 1);
 }
 
-main().catch((e) => {
-  console.error('probe crashed:', e);
-  process.exit(1);
-});
+main()
+  .catch((e) => {
+    console.error('probe crashed:', e);
+    return 1;
+  })
+  .then(async (code) => {
+    await cleanUp().catch((e) => console.error('cleanup failed:', e));
+    process.exit(code);
+  });
