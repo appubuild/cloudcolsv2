@@ -17,6 +17,15 @@ const nextConfig = {
       { protocol: "https", hostname: "**" },
     ],
   },
+  /**
+   * The Developer API is documented — and versioned — as /v1, while the code lives
+   * with every other route under /api. One rewrite rather than two sets of paths, so
+   * a developer's URL and ours cannot disagree.
+   */
+  async rewrites() {
+    return [{ source: "/v1/:path*", destination: "/api/v1/:path*" }];
+  },
+
   // HTTP cache headers. Assets with hashed filenames are immutable; pages and
   // the (mock) data are revalidated by the browser as needed.
   async headers() {

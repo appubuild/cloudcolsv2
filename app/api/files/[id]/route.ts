@@ -1,9 +1,7 @@
 import { handler, requireUser, ApiError } from "@/lib/api/auth";
 import { createAdminClient } from "@/lib/supabase/server";
 import { mapFile } from "@/lib/api/mappers";
-import { deleteObject } from "@/lib/services/b2";
-import { deliver } from "@/lib/jobs/webhookDelivery";
-import { runAfterResponse } from "@/lib/api/background";
+import { deleteFile } from "@/lib/services/fileOps";
 
 export const dynamic = "force-dynamic";
 
@@ -60,34 +58,9 @@ export const PATCH = handler(async (req: Request, ctx?: { params: Promise<Params
 export const DELETE = handler(async (req: Request, ctx?: { params: Promise<Params> }) => {
   const user = await requireUser(req);
   const { id } = (await ctx?.params) ?? { id: "" };
-  const url = new URL(req.url);
-  const force = url.searchParams.get("force") === "true";
-  const admin = createAdminClient();
-  const { data: file } = await fileQuery(admin, id, user.id).maybeSingle();
-  if (!file) throw new ApiError("FILE_NOT_FOUND", 404, "File not found.");
-
-  if (force) {
-    await deleteObject(String(file.object_key));
-    // The thumbnail is a separate object and would otherwise be billed forever with
-    // nothing pointing at it.
-    if (file.thumbnail_url) await deleteObject(String(file.thumbnail_url)).catch(() => {});
-    await admin.from("files").delete().eq("id", id).eq("owner_id", user.id);
-  } else {
-    await admin.from("files").update({ trashed_at: new Date().toISOString() }).eq("id", id).eq("owner_id", user.id);
-  }
-  runAfterResponse(
-    deliver(
-      {
-        id: String(file.id),
-        type: force ? "file.deleted" : "file.trashed",
-        fileId: String(file.id),
-        objectKey: String(file.object_key),
-        ownerId: user.id,
-        timestamp: new Date().toISOString(),
-      },
-      user.id,
-    ),
-    `webhook file.${force ? "deleted" : "trashed"}`,
-  );
+  const force = new URL(req.url).searchParams.get("force") === "true";
+  // Shared with the Developer API: removing the object, its thumbnail and the row, and
+  // the webhook that announces it, are the same act whoever asked.
+  await deleteFile(user.id, id, force);
   return { deleted: true, permanent: force };
 });
