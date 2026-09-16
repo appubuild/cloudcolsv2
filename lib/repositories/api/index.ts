@@ -35,7 +35,7 @@ import type {
   ShareRepository,
   SubscriptionRepository,
 } from "../types";
-import { apiClient, ApiClientError, hasSessionHint } from "@/lib/api/client";
+import { apiClient, ApiClientError, MfaRequiredError, hasSessionHint } from "@/lib/api/client";
 
 function qs(params: Record<string, unknown>): string {
   const p = new URLSearchParams();
@@ -95,7 +95,10 @@ class ApiAuthRepository implements AuthRepository {
   }
 
   async signIn(email: string, password: string): Promise<User> {
-    await apiClient.post("/api/auth/login", { email, password });
+    const res = await apiClient.post<{ mfaRequired?: boolean }>("/api/auth/login", { email, password });
+    // The password was right, but this account wants its authenticator code too. The
+    // sign-in page catches this and asks for it.
+    if (res.mfaRequired) throw new MfaRequiredError();
     return this.current();
   }
 

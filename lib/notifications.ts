@@ -21,7 +21,8 @@ export type NotificationType =
   | "payment_failed"
   | "subscription_canceled"
   | "inactivity_warning"
-  | "inactivity_final";
+  | "inactivity_final"
+  | "security";
 
 export interface NotificationInput {
   userId: string;

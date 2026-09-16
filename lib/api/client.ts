@@ -18,6 +18,14 @@ export class ApiClientError extends Error {
   }
 }
 
+/** Sign-in accepted the password; the account's second factor is still owed. */
+export class MfaRequiredError extends Error {
+  constructor() {
+    super("Enter the code from your authenticator app.");
+    this.name = "MfaRequiredError";
+  }
+}
+
 /**
  * Whether this browser appears to be signed in, without a request.
  *

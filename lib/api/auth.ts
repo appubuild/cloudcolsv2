@@ -25,6 +25,17 @@ export interface AuthUser {
   accessToken: string;
   /** Assurance level: "aal1" is a password alone, "aal2" includes a second factor. */
   aal: string | null;
+  /** Whether the account requires a second factor (user_storage.mfa_enabled). */
+  mfaEnabled: boolean;
+}
+
+export interface RequireUserOptions {
+  /**
+   * Accept a session that has passed the password but still owes its second factor.
+   * Only for the routes that finish or recover a sign-in, and the status check the
+   * sign-in page makes; everything else refuses such a session.
+   */
+  allowMfaPending?: boolean;
 }
 
 const WRITE_METHODS = new Set(["POST", "PATCH", "PUT", "DELETE"]);
@@ -52,12 +63,12 @@ function unverifiedAal(token: string): string | null {
 async function identify(admin: ReturnType<typeof createAdminClient>, token: string): Promise<AuthUser | null> {
   const local = await verifySupabaseJwt(token);
   if (local.status === "ok") {
-    return { id: local.claims.sub, email: local.claims.email, accessToken: token, aal: local.claims.aal };
+    return { id: local.claims.sub, email: local.claims.email, accessToken: token, aal: local.claims.aal, mfaEnabled: false };
   }
   if (local.status === "invalid") return null;
   const { data, error } = await admin.auth.getUser(token);
   if (error || !data.user) return null;
-  return { id: data.user.id, email: data.user.email ?? "", accessToken: token, aal: unverifiedAal(token) };
+  return { id: data.user.id, email: data.user.email ?? "", accessToken: token, aal: unverifiedAal(token), mfaEnabled: false };
 }
 
 /**
@@ -72,7 +83,7 @@ async function identify(admin: ReturnType<typeof createAdminClient>, token: stri
  * migration is not what maintenance is for. The Stripe webhook is unaffected too:
  * it has no user session, and money that arrived still has to be recorded.
  */
-export async function requireUser(request: Request): Promise<AuthUser> {
+export async function requireUser(request: Request, opts: RequireUserOptions = {}): Promise<AuthUser> {
   // A Bearer header (mobile app, scripts) or the httpOnly session cookies (the web app).
   // lib/api/session.ts explains the cookies.
   const session = readSession(request);
@@ -116,7 +127,7 @@ export async function requireUser(request: Request): Promise<AuthUser> {
   // working until its token expired — exactly the window suspension needs to close.
   const { data: profile } = await admin
     .from("user_storage")
-    .select("status, last_login_at")
+    .select("status, last_login_at, mfa_enabled")
     .eq("user_id", user.id)
     .maybeSingle();
   if (profile && String(profile.status) === "suspended") {
@@ -125,6 +136,15 @@ export async function requireUser(request: Request): Promise<AuthUser> {
       403,
       "This account is suspended. Contact support if you think that is a mistake.",
     );
+  }
+
+  // Two-factor. A session proven with a password alone (aal1) can do nothing for an
+  // account with 2FA on until the code is given (/api/auth/mfa/verify). Checked here,
+  // on the row already read for suspension, so every route is covered and none pays
+  // an extra query for it.
+  user.mfaEnabled = Boolean(profile?.mfa_enabled);
+  if (user.mfaEnabled && user.aal !== "aal2" && !opts.allowMfaPending) {
+    throw new ApiError("MFA_REQUIRED", 401, "Enter the code from your authenticator app to finish signing in.");
   }
 
   // Activity, for the inactivity policy. Recorded here rather than only at sign-in:
@@ -284,6 +304,9 @@ export const DEFAULT_LIMITS = {
   // Using a reset link is separate from asking for one: sharing the budget meant two
   // requests for a link used up the attempts to set the password.
   resetPassword: { name: "resetPassword", limit: 5, windowMs: 60_000 },
+  // Every 2FA action checks a 6-digit code; a million possibilities is few enough that
+  // the rate of guessing must stay low. Supabase limits verification as well.
+  mfa: { name: "mfa", limit: 10, windowMs: 60_000 },
   // Also a password check, so it gets a login-like limit: a stolen session must not be
   // able to guess the password here instead.
   accountDelete: { name: "accountDelete", limit: 5, windowMs: 60_000 },

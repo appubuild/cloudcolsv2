@@ -142,6 +142,24 @@ export async function authenticateAdmin(email: string, password: string): Promis
   const verified = await verifyPassword(email.trim().toLowerCase(), password);
   if (!verified) throw new ApiError("INVALID_CREDENTIALS", 401, "Invalid admin credentials.");
 
+  // A staff account with 2FA on must not reach the console on a password alone. It
+  // signs in to CloudCols with password and code, and enters the console from there
+  // (/api/admin/session, which requires the completed sign-in).
+  if (row.user_id) {
+    const { data: account } = await admin
+      .from("user_storage")
+      .select("mfa_enabled")
+      .eq("user_id", row.user_id)
+      .maybeSingle();
+    if (account?.mfa_enabled) {
+      throw new ApiError(
+        "MFA_REQUIRED",
+        403,
+        "This staff account uses two-factor authentication. Sign in to CloudCols first, then open the admin console.",
+      );
+    }
+  }
+
   await admin.from("admins").update({ last_login_at: new Date().toISOString() }).eq("id", row.id);
   return {
     id: String(row.id),

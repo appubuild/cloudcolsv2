@@ -37,16 +37,25 @@ export const POST = limited(async (req: Request) => {
 
   // Signing in is activity: any inactivity warning already sent no longer applies,
   // and a later lapse is warned about from the start (lib/jobs/inactivity.ts).
-  const { error: touchError } = await createAdminClient()
+  // The same write reports whether 2FA is on, so asking costs no extra query.
+  const { data: account, error: touchError } = await createAdminClient()
     .from("user_storage")
     .update({ last_login_at: new Date().toISOString(), inactivity_stage: null })
-    .eq("user_id", user.id);
+    .eq("user_id", user.id)
+    .select("mfa_enabled")
+    .maybeSingle();
   if (touchError) console.error("[login] could not record sign-in", touchError.message);
+
+  // With 2FA on, the session set below has passed the password only. requireUser
+  // refuses it everywhere until /api/auth/mfa/verify upgrades it; this flag just tells
+  // the page to ask for the code now rather than find out on the next request.
+  const mfaRequired = Boolean(account?.mfa_enabled);
 
   const tokens = tokensFrom(session);
   for (const c of sessionCookies(req, tokens)) setResponseHeader(req, "set-cookie", c);
 
   return {
+    mfaRequired,
     ...(body.tokenMode ? { token: tokens.accessToken, refreshToken: tokens.refreshToken } : {}),
     user: {
       id: user.id,

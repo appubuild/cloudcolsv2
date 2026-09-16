@@ -16,6 +16,7 @@ import { env } from "@/lib/config/env";
 import { formatBytes, formatDateTime } from "@/lib/utils";
 import { Avatar } from "@/components/layout/avatar";
 import { Check } from "lucide-react";
+import { TwoFactorCard } from "@/components/settings/two-factor-card";
 
 export default function SettingsPage() {
   const { data: me } = useMe();
@@ -142,26 +143,7 @@ function SecurityTab() {
           <div className="flex justify-end"><Button onClick={change} loading={saving}>Update password</Button></div>
         </CardContent>
       </Card>
-      <Card>
-        <CardHeader>
-          <CardTitle>Two-factor authentication</CardTitle>
-          <CardDescription>Add an extra layer of security to your account.</CardDescription>
-        </CardHeader>
-        <CardContent className="flex items-center justify-between gap-4">
-          <div>
-            <p className="text-sm font-medium text-foreground">Authenticator app</p>
-            {/* Said "Not yet enabled in the demo" beside a working-looking button that
-                had no handler at all. Nothing about the control said it would do
-                nothing, which is the one thing it reliably did. */}
-            <p className="text-xs text-muted-foreground">
-              Not available yet. Until it is, use a long, unique password here.
-            </p>
-          </div>
-          <Button variant="secondary" disabled>
-            Coming soon
-          </Button>
-        </CardContent>
-      </Card>
+      {env.dataLayer === "api" && <TwoFactorCard />}
     </div>
   );
 }
