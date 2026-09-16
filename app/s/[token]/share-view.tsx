@@ -7,6 +7,7 @@ import { CategoryThumb } from "@/components/files/category-thumb";
 import { toast } from "@/lib/store/toast";
 import { formatBytes, formatDate } from "@/lib/utils";
 import { FileText, Download } from "lucide-react";
+import { downloadFolderZip, sharedFolderSource } from "@/lib/services/folderZip";
 import type { FileCategory } from "@/lib/types";
 
 /**
@@ -59,6 +60,21 @@ export function ShareView({
     }
   };
 
+  /**
+   * A shared folder, as a zip the browser builds from the file list the server hands
+   * out. Started straight from the click so the save dialog still has its gesture.
+   */
+  const openFolder = () => {
+    setBusy(true);
+    void downloadFolderZip(sharedFolderSource(token, folderName ?? "folder"))
+      .then((r) => toast.success("Downloaded", `${r.files} file${r.files === 1 ? "" : "s"} from ${folderName ?? "the folder"}.`))
+      .catch((e) => {
+        if ((e as DOMException)?.name === "AbortError") return;
+        toast.error("Could not download the folder", (e as Error).message);
+      })
+      .finally(() => setBusy(false));
+  };
+
   const copy = async () => {
     const link = window.location.href;
     try {
@@ -91,12 +107,17 @@ export function ShareView({
           Shared via CloudCols · {permission === "download" ? "Download allowed" : "View only"}
         </p>
         <div className="mt-6 flex justify-center gap-2">
-          {/* Folder shares have nothing to hand over yet; the endpoint says so, and
-              offering the button would only produce that message. */}
           {file && (
             <Button variant="secondary" onClick={open} disabled={busy}>
               <Download className="h-4 w-4" />
               {busy ? "Preparing…" : permission === "download" ? "Download" : "Open"}
+            </Button>
+          )}
+          {/* A folder arrives as a zip the browser assembles from the shared files. */}
+          {!file && folderName && (
+            <Button variant="secondary" onClick={openFolder} disabled={busy}>
+              <Download className="h-4 w-4" />
+              {busy ? "Preparing…" : "Download all"}
             </Button>
           )}
           <Button variant="ghost" onClick={copy}>Copy link</Button>

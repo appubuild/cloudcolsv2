@@ -45,6 +45,7 @@ import { Tabs } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
 import { PreviewPortal } from "@/components/preview/preview-portal";
 import { isTextEditable, TEXT_EDIT_MAX_BYTES } from "@/lib/services/fileTypes";
+import { downloadFolderZip, ownFolderSource } from "@/lib/services/folderZip";
 
 type Mode = "browse" | "recent" | "favorites" | "category" | "trash" | "search";
 type SortKey = "name" | "size" | "modified" | "accessed";
@@ -206,17 +207,56 @@ export function FileManager({
   };
 
   /**
-   * Downloads the selected files, one at a time.
+   * Zips a folder, in the browser.
    *
-   * Sequential and paced on purpose: browsers block a page that starts many
-   * downloads at once, and silently — the first two arrive and the rest do not.
-   * There is no zip here because zipping would mean pulling every file through
-   * the server, which is the one thing this architecture avoids.
+   * Started straight from the click, not after an await: the save dialog only opens
+   * while the gesture is still fresh, and a network call first would spend it. The
+   * server lists the files, the browser reads them from the CDN and writes the
+   * archive — no file byte passes through our servers.
+   */
+  const zipFolder = (folder: FolderType) => {
+    toast.info(`Preparing ${folder.name}.zip`, "Choose where to save it; files are added as they arrive.");
+    void downloadFolderZip(ownFolderSource(folder.id, folder.name))
+      .then((r) =>
+        toast.success(
+          `Downloaded ${folder.name}`,
+          `${r.files} file${r.files === 1 ? "" : "s"}${r.inMemory ? " — built in memory, as this browser cannot stream to disk" : ""}.`,
+        ),
+      )
+      .catch((e) => {
+        // Dismissing the save dialog is a cancellation, not a failure.
+        if ((e as DOMException)?.name === "AbortError") return;
+        toast.error("Download failed", (e as Error).message);
+      });
+  };
+
+  /**
+   * Downloads what is selected.
+   *
+   * Files go one at a time and paced: browsers block a page that starts many downloads
+   * at once, and silently — the first two arrive and the rest do not. A folder becomes
+   * a zip. Several folders at once would need several save dialogs, and a browser only
+   * grants one per click, so that case says so instead of half working.
    */
   const downloadSelected = async () => {
-    const files = effectiveItems.filter((i) => selected.has(i.id) && !isFolderItem(i));
+    const chosen = effectiveItems.filter((i) => selected.has(i.id));
+    const folders = chosen.filter((i) => isFolderItem(i)) as FolderType[];
+    const files = chosen.filter((i) => !isFolderItem(i));
+
+    if (folders.length > 0 && files.length === 0 && folders.length === 1) {
+      zipFolder(folders[0]!);
+      clearSelection();
+      return;
+    }
+    if (folders.length > 1 || (folders.length === 1 && files.length > 0)) {
+      toast.info(
+        "Download folders one at a time",
+        "Each folder is saved as its own zip, and your browser allows one save dialog per click.",
+      );
+      return;
+    }
     if (files.length === 0) {
-      toast.info("Nothing to download", "Folders cannot be downloaded yet.");
+      toast.info("Nothing to download", "Select a file or a folder first.");
       return;
     }
     if (files.length > 1) {
@@ -270,6 +310,7 @@ export function FileManager({
       toast.success((item as FolderType).isPinned ? "Folder unpinned" : "Folder pinned", (item as FolderType).name);
     },
     onChangeIcon: (item: FileListItem) => setIconTarget(item as FolderType),
+    onDownloadFolder: (item: FileListItem) => zipFolder(item as FolderType),
   };
 
   const menuFor = (item: FileListItem) => (

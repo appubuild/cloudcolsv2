@@ -33,14 +33,17 @@ export interface ItemMenuHandlers {
   onShare: (item: FileListItem) => void;
   onToggleFavorite: (item: FileListItem) => void;
   onDelete: (item: FileListItem) => void;
+  /** Zips a folder in the browser. Absent where there is nothing to zip. */
+  onDownloadFolder?: (item: FileListItem) => void;
   onRestore?: (item: FileListItem) => void;
 }
 
 /**
  * The actions for one file or folder.
  *
- * Only what applies to the item is listed. A folder has no download and no
- * preview; a trashed item can only be restored or removed for good; and the
+ * Only what applies to the item is listed. A folder has no preview, and downloads
+ * as a zip the browser builds; a trashed item can only be restored or removed for
+ * good; and the
  * favourite entry says which way it will go rather than making the reader guess
  * from an icon.
  */
@@ -113,6 +116,12 @@ export function ItemMenu({
           {!isFolder && (
             <DropdownItem icon={<Download className="h-4 w-4" />} onClick={() => void downloadFile(file)}>
               Download
+            </DropdownItem>
+          )}
+
+          {isFolder && handlers.onDownloadFolder && (
+            <DropdownItem icon={<Download className="h-4 w-4" />} onClick={() => handlers.onDownloadFolder!(item)}>
+              Download as zip
             </DropdownItem>
           )}
 
