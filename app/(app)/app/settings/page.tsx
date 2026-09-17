@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useMe, usePlans, useSubscription, useSubscriptions } from "@/lib/hooks/queries";
 import { useQueryClient } from "@tanstack/react-query";
@@ -184,6 +184,12 @@ function ToggleRow({ title, desc }: { title: string; desc: string }) {
 }
 
 function BillingTab() {
+  // Which ways to pay exist right now; booleans only (app/api/payments/providers).
+  const [providers, setProviders] = useState<{ stripe: boolean; crypto: boolean } | null>(null);
+  useEffect(() => {
+    if (env.dataLayer !== "api") return;
+    apiClient.get<{ stripe: boolean; crypto: boolean }>("/api/payments/providers").then(setProviders).catch(() => setProviders(null));
+  }, []);
   const { data: me } = useMe();
   const { data: plans } = usePlans();
   const { data: sub } = useSubscriptions();
@@ -256,6 +262,21 @@ function BillingTab() {
                         },
                       )}>
                       Switch to {p.name}
+                    </Button>
+                  )}
+                  {/* Only where it will work, and only for a plan that costs something. A
+                      crypto payment buys one period; it does not renew by itself. */}
+                  {!active && p.priceCents > 0 && providers?.crypto && (
+                    <Button variant="ghost" className="mt-2" onClick={() => checkout.mutate(
+                        { planId: p.id, provider: "crypto" },
+                        {
+                          onSuccess: (r: { checkoutUrl: string | null }) => {
+                            if (r.checkoutUrl) window.location.href = r.checkoutUrl;
+                          },
+                          onError: (e) => toast.error("Could not start the XRP payment", (e as Error).message),
+                        },
+                      )}>
+                      Pay with XRP (one {p.billingInterval === "yearly" ? "year" : "month"})
                     </Button>
                   )}
                 </div>

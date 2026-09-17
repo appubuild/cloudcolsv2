@@ -25,6 +25,8 @@ export const JOB_NAMES = [
   "abandoned-uploads",
   "storage-purge",
   "orphan-sweep",
+  "crypto-reconcile",
+  "subscription-expiry",
 ] as const;
 
 export type JobName = (typeof JOB_NAMES)[number];
@@ -45,6 +47,16 @@ export async function runJob(name: JobName, data?: Record<string, unknown>): Pro
       case "abandoned-uploads": {
         const { runAbandonedUploads } = await import("./abandonedUploads");
         const result = await runAbandonedUploads();
+        return { name, ok: true, message: result };
+      }
+      case "crypto-reconcile": {
+        const { runCryptoReconcile } = await import("./cryptoReconcile");
+        const result = await runCryptoReconcile();
+        return { name, ok: true, message: result };
+      }
+      case "subscription-expiry": {
+        const { runSubscriptionExpiry } = await import("./subscriptionExpiry");
+        const result = await runSubscriptionExpiry();
         return { name, ok: true, message: result };
       }
       case "orphan-sweep": {

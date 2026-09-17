@@ -1,9 +1,7 @@
 import "server-only";
 import { createAdminClient } from "@/lib/supabase/server";
 import { stripeProvider } from "@/lib/payments/stripe";
-import { requirePlan, defaultPlan } from "@/lib/plans/catalog";
-import { audit } from "@/lib/api/audit";
-import { notify } from "@/lib/notifications";
+import { applyPaymentEvent } from "@/lib/payments/apply";
 
 export const dynamic = "force-dynamic";
 
@@ -23,6 +21,9 @@ export const dynamic = "force-dynamic";
  *     "payment succeeded" processed twice grants the plan twice and doubles the
  *     books, so the event id is recorded first and a duplicate is a no-op.
  *   - An unverified body is a stranger's POST. It never reaches the plan logic.
+ *
+ * What a verified event does lives in lib/payments/apply.ts, shared with the crypto
+ * webhook, so the two providers cannot grant plans by different rules.
  */
 export async function POST(req: Request): Promise<Response> {
   const signature = req.headers.get("stripe-signature");
@@ -62,7 +63,7 @@ export async function POST(req: Request): Promise<Response> {
   }
 
   try {
-    await applyEvent(event);
+    await applyPaymentEvent(event);
     await admin.from("payment_events").update({ processed_at: new Date().toISOString() }).eq("id", event.eventId);
     return json({ received: true });
   } catch (e) {
@@ -73,161 +74,6 @@ export async function POST(req: Request): Promise<Response> {
     // retry, but the row already exists, so the retry would be treated as a
     // duplicate — acknowledge instead and leave the row for someone to look at.
     return json({ received: true, handled: false });
-  }
-}
-
-async function applyEvent(event: Awaited<ReturnType<typeof stripeProvider.verifyWebhook>>): Promise<void> {
-  const admin = createAdminClient();
-
-  switch (event.kind) {
-    case "payment_succeeded": {
-      // Throws if the plan has gone. Better a recorded failure someone can look at
-      // than granting a quota nobody can account for.
-      const plan = await requirePlan(event.planId);
-
-      // The quota comes from the server's plan table, never from the event. What
-      // Stripe reports is that money arrived, not what it buys.
-      const { error: quotaError } = await admin
-        .from("user_storage")
-        .update({ plan_id: event.planId, storage_quota_bytes: plan.storageQuotaBytes })
-        .eq("user_id", event.userId);
-      if (quotaError) throw quotaError;
-
-      // Upserted on the provider's subscription id, so a renewal updates the same
-      // row rather than accumulating one per month.
-      if (event.providerSubscriptionId) {
-        await admin.from("subscriptions").upsert(
-          {
-            user_id: event.userId,
-            plan_id: event.planId,
-            status: "active",
-            provider: "stripe",
-            provider_subscription_id: event.providerSubscriptionId,
-            provider_customer_id: event.providerCustomerId,
-            current_period_end: event.currentPeriodEnd,
-            started_at: new Date().toISOString(),
-            renews_at: event.currentPeriodEnd,
-          },
-          { onConflict: "provider_subscription_id" },
-        );
-      }
-
-      await admin.from("payments").upsert(
-        {
-          user_id: event.userId,
-          amount_cents: event.amountCents,
-          currency: event.currency,
-          provider: "stripe",
-          status: "succeeded",
-          provider_payment_id: event.providerPaymentId,
-        },
-        { onConflict: "provider_payment_id" },
-      );
-
-      await audit({
-        actorId: event.userId,
-        actorType: "system",
-        action: "subscription.activated",
-        targetType: "user",
-        targetId: event.userId,
-        metadata: { planId: event.planId, amountCents: event.amountCents, provider: "stripe" },
-      });
-
-      // Once per payment: the event id was claimed above, so a redelivery never
-      // reaches this line twice.
-      await notify({
-        userId: event.userId,
-        type: "payment_succeeded",
-        title: "Payment received — your plan is active",
-        body: "Your new storage limit applies now.",
-        link: "/app/settings",
-      });
-      return;
-    }
-
-    case "payment_failed": {
-      if (event.providerPaymentId) {
-        await admin
-          .from("payments")
-          .upsert(
-            {
-              user_id: event.userId,
-              amount_cents: 0,
-              currency: "USD",
-              provider: "stripe",
-              status: "failed",
-              provider_payment_id: event.providerPaymentId,
-            },
-            { onConflict: "provider_payment_id" },
-          );
-      }
-      // The plan is left alone. Stripe retries a failed invoice for a while, and
-      // downgrading on the first failure would take storage away from someone
-      // whose card is about to succeed.
-      if (event.userId) {
-        await notify({
-          userId: event.userId,
-          type: "payment_failed",
-          title: "A payment didn't go through",
-          body: "Your plan is unchanged for now. Stripe will retry; updating your card avoids an interruption.",
-          link: "/app/settings",
-        });
-      }
-      return;
-    }
-
-    case "subscription_cancelled": {
-      const { data: subscription } = await admin
-        .from("subscriptions")
-        .select("user_id")
-        .eq("provider_subscription_id", event.providerSubscriptionId)
-        .maybeSingle();
-
-      await admin
-        .from("subscriptions")
-        .update({ status: "cancelled", cancelled_at: new Date().toISOString() })
-        .eq("provider_subscription_id", event.providerSubscriptionId);
-
-      if (subscription?.user_id) {
-        // Back to whatever plan is the default. Files over that quota are not
-        // deleted — that would be destroying someone's data over a billing state —
-        // but nothing new fits until they are under it again.
-        const free = await defaultPlan();
-        await admin
-          .from("user_storage")
-          .update({ plan_id: free.id, storage_quota_bytes: free.storageQuotaBytes })
-          .eq("user_id", subscription.user_id);
-
-        await audit({
-          actorId: String(subscription.user_id),
-          actorType: "system",
-          action: "subscription.cancelled",
-          targetType: "user",
-          targetId: String(subscription.user_id),
-          metadata: { provider: "stripe" },
-        });
-
-        await notify({
-          userId: String(subscription.user_id),
-          type: "subscription_canceled",
-          title: "Your subscription has ended",
-          body: "Your files are all still here. Uploads resume once you are under the free plan's limit, or when you subscribe again.",
-          link: "/app/settings",
-        });
-      }
-      return;
-    }
-
-    case "refunded": {
-      await admin
-        .from("payments")
-        .update({ status: "refunded" })
-        .eq("provider_payment_id", event.providerPaymentId);
-      return;
-    }
-
-    case "ignored":
-      return;
   }
 }
 

@@ -38,7 +38,17 @@ interface Body {
   /** Blank means "leave the stored one alone" — the panel cannot show it to echo back. */
   secretKey?: string;
   webhookSecret?: string;
+  /** Xaman's API key. Secret like the others: write-only. */
+  apiKey?: string;
+  /** Crypto: the XRP Ledger address payments are sent to. */
+  destinationAddress?: string;
+  network?: "mainnet" | "testnet";
+  /** Crypto: a JSON-RPC node to verify transactions against; blank means a public one. */
+  nodeUrl?: string;
 }
+
+/** A classic XRP Ledger address. Anything else here would take payments nobody can receive. */
+const XRPL_ADDRESS = /^r[1-9A-HJ-NP-Za-km-z]{24,34}$/;
 
 export const PUT = handler(async (req: Request) => {
   const admin = await requireAdmin(req, "super_admin");
@@ -46,10 +56,20 @@ export const PUT = handler(async (req: Request) => {
   const body = (await req.json()) as Body;
 
   const current = await readSettings(id);
+  if (body.destinationAddress !== undefined && body.destinationAddress.trim() && !XRPL_ADDRESS.test(body.destinationAddress.trim())) {
+    throw new ApiError("INVALID_INPUT", 400, "That is not an XRP Ledger address. It starts with r.");
+  }
+  if (body.nodeUrl !== undefined && body.nodeUrl.trim() && !body.nodeUrl.trim().startsWith("https://")) {
+    throw new ApiError("INVALID_INPUT", 400, "The node URL must use https.");
+  }
+
   const publicConfig = {
     ...current.publicConfig,
     ...(body.publishableKey !== undefined ? { publishableKey: body.publishableKey.trim() } : {}),
     ...(body.priceIds !== undefined ? { priceIds: body.priceIds } : {}),
+    ...(body.destinationAddress !== undefined ? { destinationAddress: body.destinationAddress.trim() } : {}),
+    ...(body.network !== undefined ? { network: body.network === "mainnet" ? "mainnet" : "testnet" } : {}),
+    ...(body.nodeUrl !== undefined ? { nodeUrl: body.nodeUrl.trim() } : {}),
   };
 
   // Refusing to enable a provider that cannot verify a webhook. Without the
@@ -65,6 +85,20 @@ export const PUT = handler(async (req: Request) => {
     );
   }
 
+  // Crypto cannot be switched on half-configured: without an address there is nowhere
+  // to be paid, and without Xaman's key and secret nothing can be verified.
+  if (body.isEnabled && id === "crypto") {
+    const hasAddress = Boolean(String(publicConfig.destinationAddress ?? "").trim());
+    const hasKey = current.hasApiKey || Boolean(body.apiKey);
+    if (!hasAddress || !hasKey || !willHaveSecretKey) {
+      throw new ApiError(
+        "INVALID_INPUT",
+        400,
+        "Crypto needs a destination address, a Xaman API key and a Xaman API secret before it can be enabled.",
+      );
+    }
+  }
+
   const saved = await writeSettings(
     id,
     {
@@ -73,6 +107,7 @@ export const PUT = handler(async (req: Request) => {
       publicConfig,
       secretKey: body.secretKey,
       webhookSecret: body.webhookSecret,
+      apiKey: body.apiKey,
     },
     // The auth account, not the admins row: updated_by references auth.users.
     admin.userId,
@@ -90,6 +125,7 @@ export const PUT = handler(async (req: Request) => {
       testMode: saved.testMode,
       secretKeyChanged: Boolean(body.secretKey),
       webhookSecretChanged: Boolean(body.webhookSecret),
+      apiKeyChanged: Boolean(body.apiKey),
     },
   });
 

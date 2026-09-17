@@ -30,6 +30,9 @@ import "server-only";
  */
 export type PlanId = string;
 
+/** Who took the money. */
+export type ProviderName = "stripe" | "crypto";
+
 export interface CheckoutRequest {
   userId: string;
   userEmail: string;
@@ -60,10 +63,26 @@ export type PaymentEvent =
       providerSubscriptionId: string | null;
       providerCustomerId: string | null;
       currentPeriodEnd: string | null;
+      /** Which provider it came from. Absent means Stripe, which predates the second one. */
+      provider?: ProviderName;
+      /**
+       * Our own id for the attempt, for a payment that is not a subscription.
+       *
+       * A one-off payment — crypto — has no recurring id to key on, so this is how the
+       * event finds the pending rows the checkout created. Recorded as
+       * payments.provider_session_id.
+       */
+      reference?: string | null;
     }
-  | { kind: "payment_failed"; eventId: string; userId: string | null; providerPaymentId: string | null }
-  | { kind: "subscription_cancelled"; eventId: string; providerSubscriptionId: string }
-  | { kind: "refunded"; eventId: string; providerPaymentId: string }
+  | {
+      kind: "payment_failed";
+      eventId: string;
+      userId: string | null;
+      providerPaymentId: string | null;
+      provider?: ProviderName;
+    }
+  | { kind: "subscription_cancelled"; eventId: string; providerSubscriptionId: string; provider?: ProviderName }
+  | { kind: "refunded"; eventId: string; providerPaymentId: string; provider?: ProviderName }
   /** Something we do not act on. Recorded, acknowledged, ignored. */
   | { kind: "ignored"; eventId: string; type: string };
 

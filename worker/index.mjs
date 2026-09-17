@@ -69,10 +69,11 @@ export class RateLimiter extends DurableObject {
  * against work that is destructive by design.
  */
 const SCHEDULES = {
-  "17 3 * * *": ["trash-cleanup", "inactivity", "abandoned-uploads", "orphan-sweep"],
+  "17 3 * * *": ["trash-cleanup", "inactivity", "abandoned-uploads", "orphan-sweep", "subscription-expiry"],
   // Hourly, on its own: it spends its whole storage budget each run, and a deleted
   // account's files should be gone in hours, not a day per 400 objects.
-  "43 * * * *": ["storage-purge"],
+  // Crypto payments a webhook missed are picked up within the hour.
+  "43 * * * *": ["storage-purge", "crypto-reconcile"],
 };
 
 export default {

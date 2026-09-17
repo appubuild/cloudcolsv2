@@ -7,7 +7,8 @@ import { Input, Label } from "@/components/ui/input";
 import { Badge, Skeleton } from "@/components/ui/misc";
 import { toast } from "@/lib/store/toast";
 import { adminFetch } from "@/lib/api/adminClient";
-import { CreditCard, Bitcoin, ShieldCheck } from "lucide-react";
+import { CreditCard, ShieldCheck } from "lucide-react";
+import { CryptoGatewayCard } from "@/components/admin/crypto-gateway-card";
 
 interface Settings {
   provider: string;
@@ -228,26 +229,7 @@ export default function PaymentGatewaysPage() {
         </CardContent>
       </Card>
 
-      <Card>
-        <CardHeader>
-          <div className="flex items-center gap-3">
-            <span className="flex h-10 w-10 items-center justify-center rounded-lg bg-muted-foreground/10 text-muted-foreground">
-              <Bitcoin className="h-5 w-5" />
-            </span>
-            <div>
-              <CardTitle>Crypto</CardTitle>
-              <CardDescription>Xaman / XRPL — not connected yet</CardDescription>
-            </div>
-            <Badge tone="muted" className="ml-auto">Coming soon</Badge>
-          </div>
-        </CardHeader>
-        <CardContent>
-          <p className="text-sm text-muted-foreground">
-            The payment layer takes providers as adapters, so crypto is a file to add rather than a
-            change to how plans work. Nothing here accepts payment until that adapter exists.
-          </p>
-        </CardContent>
-      </Card>
+      <CryptoGatewayCard />
     </div>
   );
 }

@@ -26,6 +26,8 @@ export interface PublicConfig {
 export interface SecretConfig {
   secretKey?: string;
   webhookSecret?: string;
+  /** A second credential, for providers that authenticate with a key and a secret (Xaman). */
+  apiKey?: string;
   [key: string]: unknown;
 }
 
@@ -37,6 +39,7 @@ export interface ProviderSettings {
   /** Whether a secret is stored — never the secret itself. */
   hasSecretKey: boolean;
   hasWebhookSecret: boolean;
+  hasApiKey: boolean;
   updatedAt: string | null;
 }
 
@@ -61,12 +64,14 @@ export async function readSettings(provider: ProviderId): Promise<ProviderSettin
   const r = await row(provider);
   let hasSecretKey = false;
   let hasWebhookSecret = false;
+  let hasApiKey = false;
 
   if (r?.secret_ciphertext && r.secret_iv) {
     try {
       const secret = JSON.parse(await openSecret(r.secret_ciphertext, r.secret_iv)) as SecretConfig;
       hasSecretKey = Boolean(secret.secretKey);
       hasWebhookSecret = Boolean(secret.webhookSecret);
+      hasApiKey = Boolean(secret.apiKey);
     } catch {
       // A stored value that will not decrypt means the master key changed. Report
       // it as absent rather than throwing: the panel should still load so someone
@@ -81,6 +86,7 @@ export async function readSettings(provider: ProviderId): Promise<ProviderSettin
     publicConfig: r?.public_config ?? {},
     hasSecretKey,
     hasWebhookSecret,
+    hasApiKey,
     updatedAt: r?.updated_at ?? null,
   };
 }
@@ -112,6 +118,7 @@ export async function writeSettings(
     publicConfig?: PublicConfig;
     secretKey?: string;
     webhookSecret?: string;
+    apiKey?: string;
   },
   actorId: string | null,
 ): Promise<ProviderSettings> {
@@ -121,6 +128,7 @@ export async function writeSettings(
   const secrets: SecretConfig = { ...existing };
   if (patch.secretKey) secrets.secretKey = patch.secretKey.trim();
   if (patch.webhookSecret) secrets.webhookSecret = patch.webhookSecret.trim();
+  if (patch.apiKey) secrets.apiKey = patch.apiKey.trim();
 
   const sealed = Object.keys(secrets).length ? await sealSecret(JSON.stringify(secrets)) : null;
 

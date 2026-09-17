@@ -2,6 +2,7 @@ import { handler, requireUser, ApiError } from "@/lib/api/auth";
 import { createAdminClient } from "@/lib/supabase/server";
 import { audit } from "@/lib/api/audit";
 import { stripeProvider } from "@/lib/payments/stripe";
+import { cryptoProvider } from "@/lib/payments/crypto";
 import { requirePlan } from "@/lib/plans/catalog";
 import { serverConfig } from "@/lib/config/server-env";
 
@@ -58,25 +59,23 @@ export const POST = handler(async (req: Request) => {
   // A paid plan needs a provider that can actually take the money. Without one
   // configured there is nothing to redirect to, and granting the plan anyway is
   // exactly the hole this replaced.
-  const provider = body.provider ?? "stripe";
-  if (provider !== "stripe") {
-    // Crypto has an adapter slot and no adapter. Saying so is better than a
-    // generic failure the user cannot act on.
-    throw new ApiError("PROVIDER_UNAVAILABLE", 503, "Crypto payments are not available yet.");
-  }
+  const provider = body.provider === "crypto" ? "crypto" : "stripe";
+  const paymentProvider = provider === "crypto" ? cryptoProvider : stripeProvider;
 
-  if (!(await stripeProvider.isConfigured())) {
+  if (!(await paymentProvider.isConfigured())) {
     throw new ApiError(
       "PAYMENTS_NOT_CONFIGURED",
       503,
-      "Payments are not enabled on this deployment yet. Nothing has been charged.",
+      provider === "crypto"
+        ? "Paying with XRP is not enabled on this deployment. Nothing has been charged."
+        : "Payments are not enabled on this deployment yet. Nothing has been charged.",
     );
   }
 
   // Stripe needs somewhere to send the customer back to. From the Worker's own
   // bindings, so it follows the deployment rather than a build-time guess.
   const appUrl = (serverConfig("NEXT_PUBLIC_APP_URL", "APP_URL") || "https://cloudcols.com").replace(/\/+$/, "");
-  const checkout = await stripeProvider.startCheckout({
+  const checkout = await paymentProvider.startCheckout({
     userId: user.id,
     userEmail: user.email,
     planId: body.planId,
