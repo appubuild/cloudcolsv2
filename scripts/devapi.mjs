@@ -112,6 +112,22 @@ async function main() {
   strangerId = b.data?.user?.id ?? null;
   if (!check(devId && strangerId, 'two accounts created')) return 1;
 
+  console.log('\nDeveloper mode');
+  {
+    const me0 = await dev.call('/api/auth/me');
+    check(me0.data?.developerEnabled === false, 'a new account starts with developer mode off');
+    const early = await dev.call('/api/dev/keys', { method: 'POST', body: { label: 'Too early' } });
+    check(early.status === 403 && early.code === 'DEVELOPER_MODE_OFF', 'no API key can be made before turning it on', `HTTP ${early.status} ${early.code ?? ''}`);
+    const earlyHook = await dev.call('/api/dev/webhooks', { method: 'POST', body: { url: 'https://example.com/hook', events: ['file.created'] } });
+    check(earlyHook.status === 403, 'nor a webhook', `HTTP ${earlyHook.status}`);
+    const on = await dev.call('/api/dev/enable', { method: 'POST' });
+    check(on.status === 200 && on.data?.developerEnabled === true, 'the Enable button turns it on', `HTTP ${on.status}`);
+    const me1 = await dev.call('/api/auth/me');
+    check(me1.data?.developerEnabled === true, 'and the account now reports it, so the portal opens');
+    const again = await dev.call('/api/dev/enable', { method: 'POST' });
+    check(again.status === 200, 'pressing it twice is harmless', `HTTP ${again.status}`);
+  }
+
   console.log('\nKeys');
   // shares.write is asked for explicitly: the default scopes are read and write on
   // files, and sharing is a separate capability a key does not get unless requested.

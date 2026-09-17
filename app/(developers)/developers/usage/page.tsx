@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { useApiUsage, useApiKeys, useApiPlans } from "@/lib/hooks/queries";
+import { useApiUsage, useApiKeys, useDeveloperPlan } from "@/lib/hooks/queries";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge, Skeleton } from "@/components/ui/misc";
 import { Tabs } from "@/components/ui/tabs";
@@ -11,8 +11,8 @@ export default function UsagePage() {
   const [days, setDays] = useState("7");
   const { data: usage, isLoading } = useApiUsage(Number(days));
   const { data: keys } = useApiKeys();
-  const { data: plans } = useApiPlans();
-  const plan = plans?.find((p) => p.id === "api_pro");
+  // The limits of the account's own plan.
+  const { data: plan } = useDeveloperPlan();
   const items = usage?.items ?? [];
   const total = items.length;
   const ok = items.filter((r) => r.statusCode < 400).length;

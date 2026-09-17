@@ -2,6 +2,7 @@ import { handler, requireUser, ApiError } from "@/lib/api/auth";
 import { createAdminClient } from "@/lib/supabase/server";
 import { randomHex } from "@/lib/api/crypto";
 import { audit } from "@/lib/api/audit";
+import { requireDeveloperMode } from "@/lib/api/developerMode";
 
 export const dynamic = "force-dynamic";
 
@@ -32,6 +33,7 @@ export const GET = handler(async (req: Request) => {
 interface Body { url?: string; events?: string[] }
 export const POST = handler(async (req: Request) => {
   const user = await requireUser(req);
+  await requireDeveloperMode(user.id);
   const body = (await req.json()) as Body;
   if (!body.url || !/^https:\/\//.test(body.url)) throw new ApiError("INVALID_URL", 400, "Webhook URL must be HTTPS.");
   const events = (body.events ?? []).filter((e) => VALID_EVENTS.includes(e));

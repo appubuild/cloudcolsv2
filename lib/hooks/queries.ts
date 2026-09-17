@@ -211,6 +211,31 @@ export function useApiKeys() {
   });
 }
 
+export interface DeveloperPlan {
+  planId: string;
+  planName: string;
+  priceCents: number;
+  rateLimitPerMinute: number;
+  requestsPerMonth: number;
+  requestsThisMonth: number;
+  activeKeys: number;
+}
+
+/**
+ * The account's own Developer API plan and this month's usage, from the server.
+ * The portal pages used to pick "api_pro" out of the plan list for everyone.
+ */
+export function useDeveloperPlan() {
+  return useQuery({
+    queryKey: ["developer-plan"] as const,
+    queryFn: async () => {
+      const { apiClient } = await import("@/lib/api/client");
+      return apiClient.get<DeveloperPlan>("/api/dev/plan");
+    },
+    staleTime: 30 * 1000,
+  });
+}
+
 export function useApiPlans() {
   return useQuery({
     queryKey: queryKeys.apiPlans,

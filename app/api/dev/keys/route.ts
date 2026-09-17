@@ -5,6 +5,7 @@ import { generateApiKey } from "@/lib/api/crypto";
 import { audit } from "@/lib/api/audit";
 import { API_SCOPES, type ApiScope } from "@/lib/api/v1";
 import { accountApiPlan } from "@/lib/api/apiPlan";
+import { requireDeveloperMode } from "@/lib/api/developerMode";
 
 export const dynamic = "force-dynamic";
 
@@ -42,6 +43,7 @@ interface Body {
 }
 export const POST = handler(async (req: Request) => {
   const user = await requireUser(req);
+  await requireDeveloperMode(user.id);
   const body = (await req.json().catch(() => ({}))) as Body;
 
   /**

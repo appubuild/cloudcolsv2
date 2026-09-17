@@ -3,12 +3,13 @@
 import type { ReactNode } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Logo } from "@/components/brand/logo";
 import { Toaster } from "@/components/ui/toaster";
 import { useMe } from "@/lib/hooks/queries";
-import { authRepo } from "@/lib/repositories";
+import { apiClient } from "@/lib/api/client";
+import { toast } from "@/lib/store/toast";
 import { cn } from "@/lib/utils";
 import { Spinner } from "@/components/ui/misc";
 import { Button } from "@/components/ui/button";
@@ -104,29 +105,45 @@ export default function DeveloperLayout({ children }: { children: ReactNode }) {
   );
 }
 
+/**
+ * The gate to the Developer portal.
+ *
+ * It used to call the profile update with developerEnabled: true, a field that update
+ * never sent — so pressing it did nothing, and every portal link showed this same card
+ * again, which looked like the page had hung.
+ */
 function EnableCard() {
   const qc = useQueryClient();
-  const { data: me } = useMe();
-  const router = useRouter();
+  const [busy, setBusy] = useState(false);
+
+  const enable = async () => {
+    setBusy(true);
+    try {
+      await apiClient.post("/api/dev/enable");
+      // The portal opens as soon as the account says developer mode is on.
+      await qc.invalidateQueries({ queryKey: ["me"] });
+      await qc.invalidateQueries({ queryKey: ["developer-plan"] });
+      toast.success("Developer mode is on", "You can create an API key now.");
+    } catch (e) {
+      toast.error("Could not turn on developer mode", (e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
 
   return (
     <div className="rounded-lg border border-border bg-surface p-8 text-center">
       <h1 className="text-xl font-bold text-foreground">Enable developer mode</h1>
       <p className="mx-auto mt-2 max-w-md text-sm text-muted-foreground">
-        The Developer API is a separate product with its own plans, billing and rate limits. Enable it on your account to
-        create API keys, use webhooks, and access the platform programmatically.
+        Use CloudCols from your own code: create API keys, receive webhooks, and upload, list and share files through
+        the API.
       </p>
-      <Button
-        className="mt-6"
-        onClick={async () => {
-          if (!me) return;
-          await authRepo.updateProfile(me.id, { developerEnabled: true });
-          await qc.invalidateQueries();
-        }}
-      >
+      <Button className="mt-6" loading={busy} onClick={() => void enable()}>
         Enable developer mode
       </Button>
-      <p className="mt-3 text-xs text-muted-foreground">This is a demo — enabling simulates the real flow.</p>
+      <p className="mt-3 text-xs text-muted-foreground">
+        Free to turn on. You start on the free Developer plan, with its own request limits; your storage plan is unchanged.
+      </p>
     </div>
   );
 }

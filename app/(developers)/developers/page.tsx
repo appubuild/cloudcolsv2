@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useMe, useApiUsage, useApiKeys, useApiPlans, useWebhooks } from "@/lib/hooks/queries";
+import { useApiUsage, useApiKeys, useWebhooks, useDeveloperPlan } from "@/lib/hooks/queries";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/misc";
 import { Button } from "@/components/ui/button";
@@ -9,13 +9,11 @@ import { formatBytes } from "@/lib/utils";
 import { Activity, KeyRound, Webhook as WebhookIcon, Zap } from "lucide-react";
 
 export default function DeveloperDashboard() {
-  const { data: me } = useMe();
   const { data: usage } = useApiUsage(30);
   const { data: keys } = useApiKeys();
-  const { data: apiPlans } = useApiPlans();
   const { data: webhooks } = useWebhooks();
-
-  const plan = apiPlans?.find((p) => p.id === "api_pro");
+  // The account's own plan and this month's count, not a plan picked for everyone.
+  const { data: plan } = useDeveloperPlan();
   const requests = usage?.items ?? [];
   const total = requests.length;
   const ok = requests.filter((r) => r.statusCode < 400).length;
@@ -68,13 +66,13 @@ export default function DeveloperDashboard() {
           </CardHeader>
           <CardContent className="space-y-3">
             <div className="flex items-center justify-between">
-              <Badge tone="info">{plan?.name ?? "Developer Free"}</Badge>
+              <Badge tone="info">{plan?.planName ?? "…"}</Badge>
               <span className="text-sm text-muted-foreground">
-                {plan ? `${plan.requestsPerMonth.toLocaleString()} req/mo` : ""}
+                {plan ? `${plan.requestsPerMonth.toLocaleString()} req/mo · ${plan.rateLimitPerMinute} req/min` : ""}
               </span>
             </div>
             <p className="text-sm text-muted-foreground">
-              <span className="font-medium text-foreground">{total.toLocaleString()}</span> requests used this month.
+              <span className="font-medium text-foreground">{(plan?.requestsThisMonth ?? 0).toLocaleString()}</span> requests used this month.
             </p>
             <Link href="/developers/billing"><Button variant="secondary" size="sm">Manage plan</Button></Link>
           </CardContent>
